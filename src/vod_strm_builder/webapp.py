@@ -47,6 +47,10 @@ def create_app(work_dir: Path | None = None) -> Flask:
     def get_settings():
         return jsonify(state.load_settings())
 
+    @app.get("/api/groups")
+    def get_groups():
+        return jsonify(state.load_group_cache())
+
     @app.post("/api/settings")
     def save_settings():
         try:
@@ -101,6 +105,7 @@ def create_app(work_dir: Path | None = None) -> Flask:
             response = group_response(all_groups, playlist_cached=playlist_cached, source=source)
             if warnings:
                 response["warning"] = "; ".join(warnings)
+            state.save_group_cache(response)
             return jsonify(response)
         except Exception as exc:
             LOG.exception("playlist fetch failed")
@@ -118,7 +123,9 @@ def create_app(work_dir: Path | None = None) -> Flask:
             provider_name = provider_label(provider)
             LOG.info("scanning pasted playlist provider=%s bytes=%s", provider_name, len(text.encode("utf-8", errors="replace")))
             groups = tag_groups(state.write_and_scan_playlist(text, provider_id), provider_id, provider_name)
-            return jsonify(group_response(groups, playlist_cached=True, source="m3u"))
+            response = group_response(groups, playlist_cached=True, source="m3u")
+            state.save_group_cache(response)
+            return jsonify(response)
         except Exception as exc:
             LOG.exception("pasted playlist scan failed")
             return json_error(exc)
@@ -136,7 +143,9 @@ def create_app(work_dir: Path | None = None) -> Flask:
             upload.save(state.playlist_cache_for(provider_id))
             LOG.info("uploaded playlist provider=%s filename=%s", provider_name, upload.filename or "")
             groups = tag_groups(state.scan_cached_playlist(provider_id), provider_id, provider_name)
-            return jsonify(group_response(groups, playlist_cached=True, source="m3u"))
+            response = group_response(groups, playlist_cached=True, source="m3u")
+            state.save_group_cache(response)
+            return jsonify(response)
         except Exception as exc:
             LOG.exception("playlist upload failed")
             return json_error(exc)
@@ -187,6 +196,7 @@ class AppState:
         self.playlists_dir.mkdir(parents=True, exist_ok=True)
         self.playlist_cache = self.work_dir / "playlist.m3u"
         self.settings_path = self.work_dir / "web-settings.json"
+        self.groups_path = self.work_dir / "web-groups.json"
         self.jobs: dict[str, Job] = {}
         self.lock = threading.Lock()
 
@@ -211,6 +221,28 @@ class AppState:
             self.settings_path,
             len(settings_providers(payload.get("settings") or payload)),
         )
+
+    def load_group_cache(self) -> dict[str, Any]:
+        if not self.groups_path.exists():
+            return {}
+        try:
+            data = json.loads(self.groups_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            LOG.warning("group cache is not valid JSON path=%s", self.groups_path)
+            return {}
+        if not isinstance(data, dict):
+            LOG.warning("group cache is not a JSON object path=%s", self.groups_path)
+            return {}
+        groups = data.get("groups")
+        count = len(groups) if isinstance(groups, list) else 0
+        LOG.info("loaded web group cache path=%s groups=%s", self.groups_path, count)
+        return data
+
+    def save_group_cache(self, payload: dict[str, object]) -> None:
+        self.groups_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        groups = payload.get("groups")
+        count = len(groups) if isinstance(groups, list) else 0
+        LOG.info("saved web group cache path=%s groups=%s", self.groups_path, count)
 
     def playlist_cache_for(self, provider_id: str) -> Path:
         if provider_id == "default":

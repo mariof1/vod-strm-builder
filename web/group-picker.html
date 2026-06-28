@@ -1671,6 +1671,7 @@
       state.providers = [createProvider({id: "default", name: "Provider 1"})];
       state.activeProviderId = state.providers[0].id;
       applyProviderToForm(state.providers[0]);
+      let rendered = false;
       try {
         const saved = await apiGet("/api/settings");
         if (saved && Object.keys(saved).length) {
@@ -1680,8 +1681,16 @@
       } catch (error) {
         showError(error);
       }
-      renderProviders();
-      render();
+      try {
+        const cached = await apiGet("/api/groups");
+        if (cached && Array.isArray(cached.groups) && cached.groups.length) {
+          loadGroups(cached, "cached groups");
+          rendered = true;
+        }
+      } catch (error) {
+        console.warn("Could not load cached groups", error);
+      }
+      if (!rendered) render();
     }
 
     function applySavedState(saved) {

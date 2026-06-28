@@ -112,6 +112,41 @@ def test_settings_api_persists_to_work_dir(tmp_path: Path):
     assert (tmp_path / "web-settings.json").exists()
 
 
+def test_group_cache_api_persists_last_scan(tmp_path: Path):
+    app = create_app(tmp_path)
+    payload = {
+        "providers": [
+            {
+                "id": "main",
+                "name": "Main",
+                "server_url": "http://provider.example.com",
+                "username": "user",
+                "password": "secret",
+            }
+        ],
+        "active_provider_id": "main",
+        "text": "\n".join(
+            [
+                "#EXTM3U",
+                '#EXTINF:-1 group-title="Movies" tvg-name="Film",Film',
+                "http://provider.example.com/movie/user/pass/1.mp4",
+            ]
+        ),
+    }
+
+    scan_response = app.test_client().post("/api/playlist/text", json=payload)
+    reloaded_app = create_app(tmp_path)
+    cache_response = reloaded_app.test_client().get("/api/groups")
+    data = cache_response.get_json()
+
+    assert scan_response.status_code == 200
+    assert cache_response.status_code == 200
+    assert data["groups"][0]["name"] == "Movies"
+    assert data["groups"][0]["provider_id"] == "main"
+    assert data["stats"]["movie_entries"] == 1
+    assert (tmp_path / "web-groups.json").exists()
+
+
 def test_multi_provider_selection_is_split_by_provider():
     providers = settings_providers(
         {
