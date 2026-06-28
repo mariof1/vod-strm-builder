@@ -186,6 +186,49 @@ def test_group_cache_api_rebuilds_from_cached_playlist(tmp_path: Path):
     assert (tmp_path / "web-groups.json").exists()
 
 
+def test_fetch_playlist_uses_cached_m3u_when_live_fetch_fails(tmp_path: Path, monkeypatch):
+    state = AppState(tmp_path)
+    state.write_and_scan_playlist(
+        "\n".join(
+            [
+                "#EXTM3U",
+                '#EXTINF:-1 group-title="Cached Movies" tvg-name="Film",Film',
+                "http://provider.example.com/movie/user/pass/1.mp4",
+            ]
+        ),
+        "main",
+    )
+
+    def fail_get(*args, **kwargs):
+        raise requests.ReadTimeout("timed out")
+
+    monkeypatch.setattr("vod_strm_builder.webapp.requests.get", fail_get)
+    app = create_app(tmp_path)
+
+    response = app.test_client().post(
+        "/api/playlist/fetch",
+        json={
+            "providers": [
+                {
+                    "id": "main",
+                    "name": "Main",
+                    "server_url": "http://provider.example.com",
+                    "username": "user",
+                    "password": "secret",
+                    "m3u_url": "http://provider.example.com/get.php?username=user&password=secret",
+                }
+            ]
+        },
+    )
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert data["groups"][0]["name"] == "Cached Movies"
+    assert data["playlist_cached"] is True
+    assert data["source"] == "m3u"
+    assert "using cached playlist" in data["warning"]
+
+
 def test_multi_provider_selection_is_split_by_provider():
     providers = settings_providers(
         {

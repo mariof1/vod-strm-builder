@@ -89,13 +89,19 @@ def create_app(work_dir: Path | None = None) -> Flask:
                     source = "m3u"
                 except Exception as playlist_exc:
                     LOG.warning("m3u fetch failed provider=%s error=%s", provider_name, playlist_exc)
-                    try:
-                        groups = state.fetch_xtream_groups(provider)
-                        playlist_cached = False
-                        source = "xtream_api"
-                        warnings.append(f"{provider_name}: {playlist_exc}")
-                    except Exception:
-                        raise playlist_exc
+                    cached_groups = state.scan_cached_playlist_if_available(provider_id)
+                    if cached_groups is not None:
+                        groups = cached_groups
+                        source = "m3u"
+                        warnings.append(f"{provider_name}: live playlist fetch failed; using cached playlist. {playlist_exc}")
+                    else:
+                        try:
+                            groups = state.fetch_xtream_groups(provider)
+                            playlist_cached = False
+                            source = "xtream_api"
+                            warnings.append(f"{provider_name}: {playlist_exc}")
+                        except Exception:
+                            raise playlist_exc
                 groups = tag_groups(groups, provider_id, provider_name, source)
                 all_groups.extend(groups)
                 sources.add(source)
@@ -308,6 +314,13 @@ class AppState:
     def scan_cached_playlist(self, provider_id: str = "default") -> list[dict[str, object]]:
         with self.playlist_cache_for(provider_id).open("r", encoding="utf-8", errors="replace") as fh:
             return [group.to_dict() for group in scan_m3u_groups(fh)]
+
+    def scan_cached_playlist_if_available(self, provider_id: str = "default") -> list[dict[str, object]] | None:
+        playlist_cache = self.playlist_cache_for(provider_id)
+        if not playlist_cache.exists():
+            return None
+        LOG.info("using cached playlist after live fetch failure path=%s", playlist_cache)
+        return self.scan_cached_playlist(provider_id)
 
     def start_job(self, payload: dict[str, Any]) -> "Job":
         settings = dict(payload.get("settings") or {})
