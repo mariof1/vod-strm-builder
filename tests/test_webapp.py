@@ -5,6 +5,7 @@ import requests
 from vod_strm_builder.models import DEFAULT_USER_AGENT, MovieItem, SeriesItem
 from vod_strm_builder.webapp import (
     AppState,
+    Job,
     build_config,
     create_app,
     describe_playlist_fetch_error,
@@ -110,6 +111,30 @@ def test_settings_api_persists_to_work_dir(tmp_path: Path):
     assert save_response.status_code == 200
     assert load_response.get_json() == payload
     assert (tmp_path / "web-settings.json").exists()
+
+
+def test_job_public_includes_progress(tmp_path: Path):
+    job = Job(
+        job_id="abc123",
+        job_dir=tmp_path,
+        runs=[{"provider_name": "One"}, {"provider_name": "Two"}],
+        summary_path=tmp_path / "summary.json",
+        log_path=tmp_path / "generate.log",
+    )
+
+    assert job.public()["progress"]["percent"] == 0
+
+    job.status = "running"
+    job.current_provider_index = 1
+    job.current_provider_name = "One"
+
+    progress = job.public()["progress"]
+    assert progress["percent"] == 17
+    assert progress["current_provider_name"] == "One"
+    assert progress["total_providers"] == 2
+
+    job.status = "complete"
+    assert job.public()["progress"]["percent"] == 100
 
 
 def test_group_cache_api_persists_last_scan(tmp_path: Path):

@@ -403,6 +403,9 @@ class Job:
         self.return_code: int | None = None
         self.process: subprocess.Popen[str] | None = None
         self.thread: threading.Thread | None = None
+        self.current_provider_index = 0
+        self.current_provider_name = ""
+        self.completed_providers = 0
 
     def start(self) -> None:
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -418,6 +421,8 @@ class Job:
                     break
                 provider_id = str(run["provider_id"])
                 provider_name = str(run["provider_name"])
+                self.current_provider_index = index
+                self.current_provider_name = provider_name
                 run_dir = self.job_dir / f"{index:02d}-{provider_id}"
                 run_dir.mkdir(parents=True, exist_ok=True)
                 config_path = run_dir / "config.yml"
@@ -474,6 +479,7 @@ class Job:
                 LOG.info("job %s provider finished provider=%s return_code=%s", self.id, provider_name, self.return_code)
                 if self.return_code != 0:
                     break
+                self.completed_providers = index
                 log.write("\n")
             self.summary_path.write_text(json.dumps(aggregate, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         self.ended_at = time.time()
@@ -481,6 +487,8 @@ class Job:
             LOG.info("job %s cancelled", self.id)
             return
         self.status = "complete" if self.return_code == 0 else "failed"
+        if self.status == "complete":
+            self.completed_providers = len(self.runs)
         LOG.info("job %s finished status=%s return_code=%s", self.id, self.status, self.return_code)
 
     def cancel(self) -> None:
@@ -508,6 +516,25 @@ class Job:
         except json.JSONDecodeError:
             return None
 
+    def progress(self) -> dict[str, Any]:
+        total = max(len(self.runs), 1)
+        if self.status == "queued":
+            percent = 0
+        elif self.status == "running":
+            active_fraction = 0.35 if self.current_provider_index else 0
+            percent = int(min(95, ((self.completed_providers + active_fraction) / total) * 100))
+        elif self.status == "complete":
+            percent = 100
+        else:
+            percent = int((self.completed_providers / total) * 100)
+        return {
+            "percent": percent,
+            "completed_providers": self.completed_providers,
+            "current_provider_index": self.current_provider_index,
+            "current_provider_name": self.current_provider_name,
+            "total_providers": len(self.runs),
+        }
+
     def public(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -516,6 +543,7 @@ class Job:
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "provider_count": len(self.runs),
+            "progress": self.progress(),
             "summary_path": str(self.summary_path),
             "log_path": str(self.log_path),
             "summary": self.read_summary(),

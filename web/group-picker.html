@@ -113,7 +113,7 @@
     .app {
       height: 100vh;
       display: grid;
-      grid-template-rows: auto 1fr;
+      grid-template-rows: auto auto 1fr;
     }
 
     header {
@@ -156,6 +156,68 @@
     }
 
     .status.error { color: var(--red); }
+
+    .progress-area {
+      border-bottom: 1px solid var(--line);
+      background: #12151a;
+      padding: 7px 22px 9px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .progress-area[hidden] { display: none; }
+
+    .progress-copy {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 0;
+    }
+
+    .progress-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .progress-percent {
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-track {
+      position: relative;
+      height: 5px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #090b0f;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #5aa7ff, #44c27f);
+      transition: width 180ms ease;
+    }
+
+    .progress-fill.indeterminate {
+      position: absolute;
+      width: 42%;
+      animation: progress-slide 1.1s ease-in-out infinite;
+    }
+
+    .progress-area.error .progress-fill {
+      background: var(--red);
+    }
+
+    @keyframes progress-slide {
+      0% { transform: translateX(-110%); }
+      100% { transform: translateX(250%); }
+    }
 
     main {
       min-height: 0;
@@ -631,6 +693,15 @@
         <div class="status" id="status">Ready</div>
       </div>
     </header>
+    <div class="progress-area" id="progressArea" hidden>
+      <div class="progress-copy">
+        <span class="progress-label" id="progressLabel">Working</span>
+        <span class="progress-percent" id="progressPercent"></span>
+      </div>
+      <div class="progress-track" aria-hidden="true">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+    </div>
 
     <main>
       <aside class="left">
@@ -846,6 +917,7 @@
       jobLog: "",
       jobStatus: null,
       pollTimer: null,
+      progressHideTimer: null,
       groupSource: "m3u",
     };
 
@@ -861,6 +933,10 @@
     const providerFieldIds = ["providerName", "serverUrl", "username", "password", "m3uUrl", "userAgent"];
     const els = {
       status: document.getElementById("status"),
+      progressArea: document.getElementById("progressArea"),
+      progressFill: document.getElementById("progressFill"),
+      progressLabel: document.getElementById("progressLabel"),
+      progressPercent: document.getElementById("progressPercent"),
       saveSettings: document.getElementById("saveSettings"),
       providerList: document.getElementById("providerList"),
       addProvider: document.getElementById("addProvider"),
@@ -924,7 +1000,7 @@
       const provider = createProvider({name: `Provider ${state.providers.length + 1}`});
       state.providers.push(provider);
       selectProvider(provider.id);
-      setStatus("Provider added");
+      quickProgress("Provider added");
     });
 
     els.duplicateProvider.addEventListener("click", () => {
@@ -933,7 +1009,7 @@
       const provider = createProvider({...active, id: "", name: `${active.name || "Provider"} Copy`});
       state.providers.push(provider);
       selectProvider(provider.id);
-      setStatus("Provider duplicated");
+      quickProgress("Provider duplicated");
     });
 
     els.removeProvider.addEventListener("click", () => {
@@ -947,35 +1023,29 @@
         }
       }
       selectProvider(state.providers[0].id);
-      setStatus("Provider removed");
+      quickProgress("Provider removed");
     });
 
     els.saveSettings.addEventListener("click", async () => {
-      try {
+      await withProgress("Saving settings...", async () => {
         syncActiveProviderFromForm();
         await apiJson("/api/settings", {
           settings: settingsPayload(),
           selected_groups: selectedGroupsPayload(),
         });
-        setStatus("Settings saved");
-      } catch (error) {
-        showError(error);
-      }
+      }, "Settings saved");
     });
 
     els.fileInput.addEventListener("change", async () => {
       const file = els.fileInput.files && els.fileInput.files[0];
       if (!file) return;
-      setStatus(`Uploading ${file.name}...`);
-      try {
+      const data = await withProgress(`Uploading ${file.name}...`, async () => {
         const body = new FormData();
         body.append("file", file);
         body.append("payload", JSON.stringify(settingsPayload()));
-        const data = await apiForm("/api/playlist/upload", body);
-        loadGroups(data, file.name);
-      } catch (error) {
-        showError(error);
-      }
+        return apiForm("/api/playlist/upload", body);
+      }, "Playlist uploaded");
+      if (data) loadGroups(data, file.name);
     });
 
     els.pasteToggle.addEventListener("click", () => {
@@ -983,27 +1053,24 @@
       if (els.pastePanel.style.display === "grid") els.pasteInput.focus();
     });
 
-    els.parsePaste.addEventListener("click", () => {
-      try {
-        setStatus("Parsing pasted playlist...");
-        apiJson("/api/playlist/text", {...settingsPayload(), text: els.pasteInput.value})
-          .then((data) => loadGroups(data, "pasted playlist"))
-          .catch(showError);
-      } catch (error) {
-        showError(error);
-      }
+    els.parsePaste.addEventListener("click", async () => {
+      const data = await withProgress("Parsing pasted playlist...", async () => {
+        return apiJson("/api/playlist/text", {...settingsPayload(), text: els.pasteInput.value});
+      }, "Playlist parsed");
+      if (data) loadGroups(data, "pasted playlist");
     });
 
     els.clearPaste.addEventListener("click", () => {
       els.pasteInput.value = "";
       els.pasteInput.focus();
+      quickProgress("Paste cleared");
     });
 
     els.buildM3uUrl.addEventListener("click", () => {
       form.m3uUrl.value = buildM3uUrl();
       syncActiveProviderFromForm();
       render();
-      setStatus("M3U URL built");
+      quickProgress("M3U URL built");
     });
 
     els.fetchM3u.addEventListener("click", async () => {
@@ -1039,6 +1106,7 @@
         if (group.movieCount > 0) state.selectedMovies.add(group.key);
       });
       render();
+      quickProgress("Visible movie groups selected");
     });
 
     els.selectVisibleSeries.addEventListener("click", () => {
@@ -1046,6 +1114,7 @@
         if (group.seriesCount > 0) state.selectedSeries.add(group.key);
       });
       render();
+      quickProgress("Visible series groups selected");
     });
 
     els.clearVisible.addEventListener("click", () => {
@@ -1054,57 +1123,64 @@
         state.selectedSeries.delete(group.key);
       });
       render();
+      quickProgress("Visible groups cleared");
     });
 
     els.runGenerate.addEventListener("click", async () => {
-      setStatus("Starting generator...");
+      startProgress("Starting generator...", 5);
+      let data = null;
       try {
-        const data = await apiJson("/api/generate", {
+        data = await apiJson("/api/generate", {
           settings: settingsPayload(),
           selected_groups: selectedGroupsPayload(),
         });
+      } catch (error) {
+        failProgress(error);
+        return;
+      }
+      if (data) {
         state.currentJobId = data.id;
         state.jobStatus = data;
         state.jobLog = "";
         selectOutput("log");
-        setStatus(`Generator ${data.status}`);
+        updateJobProgress(data);
         pollJob();
-      } catch (error) {
-        showError(error);
       }
     });
 
     els.cancelGenerate.addEventListener("click", async () => {
       if (!state.currentJobId) return;
-      setStatus("Cancelling...");
-      try {
-        const data = await apiJson(`/api/jobs/${state.currentJobId}/cancel`, {});
+      const data = await withProgress("Cancelling generator...", async () => {
+        return apiJson(`/api/jobs/${state.currentJobId}/cancel`, {});
+      }, "Generator cancelled");
+      if (data) {
         state.jobStatus = data;
         await refreshJobLog();
+        updateJobProgress(data);
         render();
-      } catch (error) {
-        showError(error);
       }
     });
 
     els.downloadCurrent.addEventListener("click", () => {
       downloadText(outputName(state.activeOutput), outputValue(state.activeOutput));
+      quickProgress("Download started");
     });
 
     els.downloadAll.addEventListener("click", () => {
       for (const key of ["config", "groups", "env", "command", "log"]) {
         downloadText(outputName(key), outputValue(key));
       }
+      quickProgress("Downloads started");
     });
 
     els.copyCurrent.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(outputValue(state.activeOutput));
-        setStatus("Copied");
+        quickProgress("Copied");
       } catch {
         els.outputText.select();
         document.execCommand("copy");
-        setStatus("Copied");
+        quickProgress("Copied");
       }
     });
 
@@ -1135,12 +1211,11 @@
     }
 
     async function syncProviderPlaylists(statusText, sourceName) {
-      setStatus(statusText);
-      try {
-        const data = await apiJson("/api/playlist/fetch", settingsPayload());
+      const data = await withProgress(statusText, async () => {
+        return apiJson("/api/playlist/fetch", settingsPayload());
+      }, "Playlist synced");
+      if (data) {
         loadGroups(data, sourceName);
-      } catch (error) {
-        showError(error);
       }
     }
 
@@ -1289,12 +1364,18 @@
         state.jobStatus = await readApiResponse(response);
         await refreshJobLog();
         const status = state.jobStatus.status;
-        setStatus(`Generator ${status}`);
+        updateJobProgress(state.jobStatus);
         if (!["complete", "failed", "cancelled"].includes(status)) {
           state.pollTimer = window.setTimeout(pollJob, 2000);
+        } else if (status === "complete") {
+          finishProgress("Generator complete");
+        } else if (status === "cancelled") {
+          finishProgress("Generator cancelled");
+        } else {
+          failProgress("Generator failed");
         }
       } catch (error) {
-        showError(error);
+        failProgress(error);
       }
       render();
     }
@@ -1303,6 +1384,14 @@
       if (!state.currentJobId) return;
       const response = await fetch(`/api/jobs/${state.currentJobId}/log`);
       state.jobLog = await response.text();
+    }
+
+    function updateJobProgress(job) {
+      const progress = job.progress || {};
+      const name = progress.current_provider_name ? `: ${progress.current_provider_name}` : "";
+      const label = `Generator ${job.status}${name}`;
+      const percent = typeof progress.percent === "number" ? progress.percent : null;
+      updateProgress(label, percent);
     }
 
     function loadGroups(data, sourceName) {
@@ -1442,6 +1531,7 @@
         button.classList.toggle("on", selected);
         button.setAttribute("aria-pressed", selected ? "true" : "false");
         renderSelectionChange();
+        quickProgress(selected ? "Group selected" : "Group deselected");
       });
       button.textContent = kind === "movie" ? "M" : "S";
       return button;
@@ -1669,16 +1759,20 @@
       state.activeProviderId = state.providers[0].id;
       applyProviderToForm(state.providers[0]);
       let rendered = false;
+      let loadedSettings = false;
+      startProgress("Loading settings...", 10);
       try {
         const saved = await apiGet("/api/settings");
         if (saved && Object.keys(saved).length) {
           applySavedState(saved);
+          loadedSettings = true;
           setStatus("Settings loaded");
         }
       } catch (error) {
-        showError(error);
+        failProgress(error);
       }
       try {
+        updateProgress("Loading cached groups...", 45);
         const cached = await apiGet("/api/groups");
         if (cached && Array.isArray(cached.groups) && cached.groups.length) {
           loadGroups(cached, "cached groups");
@@ -1687,7 +1781,11 @@
       } catch (error) {
         console.warn("Could not load cached groups", error);
       }
-      if (!rendered) render();
+      if (!rendered) {
+        render();
+        setStatus(loadedSettings ? "Settings loaded" : "Ready");
+      }
+      finishProgress();
     }
 
     function applySavedState(saved) {
@@ -1755,6 +1853,91 @@
 
     function setChecked(element, value) {
       if (value !== undefined && value !== null) element.checked = Boolean(value);
+    }
+
+    function startProgress(label, percent = null) {
+      window.clearTimeout(state.progressHideTimer);
+      els.progressArea.hidden = false;
+      els.progressArea.classList.remove("error");
+      els.progressLabel.textContent = label;
+      els.progressFill.classList.toggle("indeterminate", percent === null);
+      if (percent === null) {
+        els.progressFill.style.width = "";
+        els.progressPercent.textContent = "";
+      } else {
+        const value = clampPercent(percent);
+        els.progressFill.style.width = `${value}%`;
+        els.progressPercent.textContent = `${value}%`;
+      }
+      setStatus(label);
+    }
+
+    function updateProgress(label, percent = null) {
+      window.clearTimeout(state.progressHideTimer);
+      els.progressArea.hidden = false;
+      els.progressArea.classList.remove("error");
+      if (label) {
+        els.progressLabel.textContent = label;
+        setStatus(label);
+      }
+      els.progressFill.classList.toggle("indeterminate", percent === null);
+      if (percent === null) {
+        els.progressFill.style.width = "";
+        els.progressPercent.textContent = "";
+      } else {
+        const value = clampPercent(percent);
+        els.progressFill.style.width = `${value}%`;
+        els.progressPercent.textContent = `${value}%`;
+      }
+    }
+
+    function finishProgress(message = null) {
+      if (message) setStatus(message);
+      els.progressArea.hidden = false;
+      els.progressArea.classList.remove("error");
+      els.progressFill.classList.remove("indeterminate");
+      els.progressFill.style.width = "100%";
+      els.progressPercent.textContent = "100%";
+      els.progressLabel.textContent = message || els.progressLabel.textContent || "Complete";
+      state.progressHideTimer = window.setTimeout(() => {
+        els.progressArea.hidden = true;
+      }, 900);
+    }
+
+    function failProgress(error) {
+      const message = error instanceof Error ? error.message : String(error);
+      els.progressArea.hidden = false;
+      els.progressArea.classList.add("error");
+      els.progressFill.classList.remove("indeterminate");
+      els.progressFill.style.width = "100%";
+      els.progressPercent.textContent = "";
+      els.progressLabel.textContent = message;
+      showError(error);
+      state.progressHideTimer = window.setTimeout(() => {
+        els.progressArea.hidden = true;
+        els.progressArea.classList.remove("error");
+      }, 1800);
+    }
+
+    async function withProgress(label, action, successMessage = null) {
+      startProgress(label);
+      try {
+        const result = await action();
+        finishProgress(successMessage);
+        return result;
+      } catch (error) {
+        failProgress(error);
+        return null;
+      }
+    }
+
+    function quickProgress(message) {
+      startProgress(message, 35);
+      finishProgress(message);
+    }
+
+    function clampPercent(value) {
+      return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
     }
 
     function setStatus(message) {
