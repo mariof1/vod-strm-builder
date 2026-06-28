@@ -31,9 +31,10 @@ Set credentials in environment variables rather than in the config file:
 ```bash
 export XTREAM_USERNAME="your_username"
 export XTREAM_PASSWORD="your_password"
-export TMDB_API_KEY="your_tmdb_v3_key"
 # Optional, only when jellyfin.enabled=true:
 export JELLYFIN_API_KEY="your_jellyfin_api_key"
+# Optional, only when tmdb.enabled=true to fill missing IDs:
+export TMDB_API_KEY="your_tmdb_v3_key"
 ```
 
 Then edit `config.yml`:
@@ -59,7 +60,7 @@ series:
   require_selected_m3u_group: true
 
 tmdb:
-  enabled: true
+  enabled: false
   api_key_env: "TMDB_API_KEY"
   cache_file: ".tmdb-cache.json"
   lookup_missing_only: true
@@ -94,7 +95,7 @@ docker cp tools/export_dispatcharr_vod_catalog.py dispatcharr:/tmp/export_dispat
 docker exec dispatcharr sh -lc "/dispatcharrpy/bin/python /app/manage.py shell < /tmp/export_dispatcharr_vod_catalog.py" > selected-catalog.dispatcharr.json
 ```
 
-Set `catalog_file: "selected-catalog.dispatcharr.json"` in `config.yml`. With this enabled, the generator uses Dispatcharr's exported TMDB metadata and skips Xtream catalogue API calls at runtime.
+Set `catalog_file: "selected-catalog.dispatcharr.json"` in `config.yml`. With this enabled, the generator uses Dispatcharr's exported provider metadata, including TMDB IDs, and skips Xtream catalogue API calls at runtime.
 
 ## Generate
 
@@ -106,14 +107,21 @@ Use `dry_run: true` first if you want a summary without writing files.
 
 Use `clean: true` only when the output paths are dedicated to generated STRM/NFO files. It removes the existing output tree before rebuilding it.
 
-## TMDB Lookup
+## TMDB IDs
 
-When `tmdb.enabled` is true, the generator fills missing TMDB IDs before writing folders. It uses:
+The normal Dispatcharr-compatible path does not need a TMDB API key. VOD2MLIB appends `{tmdb-NNN}` from the `tmdb_id` already stored on the Dispatcharr movie or series object. Dispatcharr fills that field from the provider catalogue fields named `tmdb` or `tmdb_id`.
+
+This tool does the same when `catalog_file: "selected-catalog.dispatcharr.json"` is set, or when it reads provider catalogue data directly. The run summary reports:
+
+- `movies_with_provider_tmdb_id`
+- `series_with_provider_tmdb_id`
+
+Optional: when `tmdb.enabled` is true, the generator can fill missing TMDB IDs before writing folders. That optional fallback uses:
 
 - `/find/{imdb_id}` when the catalogue has an IMDb ID
 - `/search/movie` or `/search/tv` using title and year otherwise
 
-The TMDB key is read from `TMDB_API_KEY` by default. It is never stored in generated `.strm` or `.nfo` files.
+That fallback needs a real TMDB API key, read from `TMDB_API_KEY` by default. It is never stored in generated `.strm` or `.nfo` files.
 
 `lookup_missing_only: true` keeps existing exported TMDB IDs and only calls TMDB for missing ones. Use `cache_file: ".tmdb-cache.json"` to avoid repeating lookups on later runs.
 

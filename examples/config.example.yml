@@ -35,7 +35,11 @@ series:
   quality_words: ["4k", "uhd", "fhd", "hd"]
 
 tmdb:
-  enabled: true
+  # Off by default. Dispatcharr/VOD2MLIB appends TMDB suffixes from the
+  # provider/Dispatcharr catalogue fields, which this tool also uses when
+  # catalog_file is set. Enable this only to fill missing IDs with your own
+  # TMDB API key.
+  enabled: false
   api_key_env: "TMDB_API_KEY"
   language: "en-US"
   cache_file: ".tmdb-cache.json"

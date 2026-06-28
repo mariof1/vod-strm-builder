@@ -13,6 +13,13 @@ from .writer import write_movies, write_series
 from .xtream import XtreamClient
 
 
+def existing_tmdb_stats(movies: list[object], series: list[object]) -> dict[str, int]:
+    return {
+        "movies_with_provider_tmdb_id": sum(1 for item in movies if getattr(item, "tmdb_id", None)),
+        "series_with_provider_tmdb_id": sum(1 for item in series if getattr(item, "tmdb_id", None)),
+    }
+
+
 def selected_category_ids(categories: dict[str, str], names: set[str], ids: set[str]) -> set[str]:
     resolved = {str(category_id) for category_id in ids}
     selected_names = {name.strip() for name in names}
@@ -54,6 +61,7 @@ def generate(config_path: str) -> dict[str, object]:
             "series_selected": len(series),
         }
 
+    summary.update(existing_tmdb_stats(movies, series))
     movies, series, tmdb_stats = enrich_with_tmdb(config, movies, series)
     summary.update(tmdb_stats)
     summary.update(write_movies(config, client, movies))
