@@ -55,8 +55,8 @@ The stack publishes the app on host port `18080` and uses these default host pat
 
 ```text
 /opt/vod-strm-builder/work
-/opt/vod-strm-builder/movies
-/opt/vod-strm-builder/tvshows
+/mnt/strm/movies
+/mnt/strm/tvshows
 ```
 
 ## Install

@@ -11,6 +11,6 @@ services:
       PORT: "8080"
     volumes:
       - /opt/vod-strm-builder/work:/work
-      - /opt/vod-strm-builder/movies:/media/movies
-      - /opt/vod-strm-builder/tvshows:/media/tvshows
+      - /mnt/strm/movies:/media/movies
+      - /mnt/strm/tvshows:/media/tvshows
     restart: unless-stopped
