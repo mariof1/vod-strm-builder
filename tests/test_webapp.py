@@ -6,6 +6,7 @@ from vod_strm_builder.models import DEFAULT_USER_AGENT, MovieItem, SeriesItem
 from vod_strm_builder.webapp import (
     AppState,
     Job,
+    PROGRESS_PREFIX,
     build_config,
     create_app,
     describe_playlist_fetch_error,
@@ -135,6 +136,26 @@ def test_job_public_includes_progress(tmp_path: Path):
 
     job.status = "complete"
     assert job.public()["progress"]["percent"] == 100
+
+
+def test_job_progress_uses_cli_progress_events(tmp_path: Path):
+    job = Job(
+        job_id="abc123",
+        job_dir=tmp_path,
+        runs=[{"provider_name": "One"}, {"provider_name": "Two"}],
+        summary_path=tmp_path / "summary.json",
+        log_path=tmp_path / "generate.log",
+    )
+    job.status = "running"
+    job.current_provider_index = 1
+    job.current_provider_name = "One"
+
+    assert job.apply_progress_line(f'{PROGRESS_PREFIX}{{"label":"Writing movies","percent":44.5}}')
+
+    progress = job.public()["progress"]
+    assert progress["percent"] == 22
+    assert progress["provider_percent"] == 44.5
+    assert progress["phase_label"] == "Writing movies"
 
 
 def test_group_cache_api_persists_last_scan(tmp_path: Path):

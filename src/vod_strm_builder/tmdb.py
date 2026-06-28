@@ -4,7 +4,7 @@ import json
 from dataclasses import replace
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import requests
 
@@ -140,8 +140,15 @@ def choose_best_result(kind: str, title: str, year: int | None, rows: list[dict[
     return best
 
 
-def enrich_with_tmdb(config: AppConfig, movies: list[MovieItem], series: list[SeriesItem]) -> tuple[list[MovieItem], list[SeriesItem], dict[str, int]]:
+def enrich_with_tmdb(
+    config: AppConfig,
+    movies: list[MovieItem],
+    series: list[SeriesItem],
+    progress: Callable[[int, int], None] | None = None,
+) -> tuple[list[MovieItem], list[SeriesItem], dict[str, int]]:
     if not config.tmdb.enabled:
+        if progress:
+            progress(0, 0)
         return movies, series, {"tmdb_enabled": 0}
     client = TmdbClient(config.tmdb)
     stats = {
@@ -154,10 +161,14 @@ def enrich_with_tmdb(config: AppConfig, movies: list[MovieItem], series: list[Se
     }
     enriched_movies: list[MovieItem] = []
     stop_lookup = False
+    total = len(movies) + len(series)
+    checked = 0
+    last_progress = 0
     for index, item in enumerate(movies):
         if stop_lookup:
             enriched_movies.extend(movies[index:])
             break
+        checked += 1
         should_check = not (config.tmdb.lookup_missing_only and item.tmdb_id)
         if should_check:
             stats["movies_checked"] += 1
@@ -173,12 +184,16 @@ def enrich_with_tmdb(config: AppConfig, movies: list[MovieItem], series: list[Se
         if changed:
             stats["movies_resolved"] += 1
         enriched_movies.append(resolved)
+        if progress and _should_report_count(checked, total):
+            last_progress = checked
+            progress(checked, total)
 
     enriched_series: list[SeriesItem] = []
     for index, item in enumerate(series):
         if stop_lookup:
             enriched_series.extend(series[index:])
             break
+        checked += 1
         should_check = not (config.tmdb.lookup_missing_only and item.tmdb_id)
         if should_check:
             stats["series_checked"] += 1
@@ -194,10 +209,15 @@ def enrich_with_tmdb(config: AppConfig, movies: list[MovieItem], series: list[Se
         if changed:
             stats["series_resolved"] += 1
         enriched_series.append(resolved)
+        if progress and _should_report_count(checked, total):
+            last_progress = checked
+            progress(checked, total)
 
     client.save_cache()
     if stop_lookup:
         stats["tmdb_lookup_stopped_after_error"] = 1
+    if progress and last_progress != total:
+        progress(total, total)
     return enriched_movies, enriched_series, stats
 
 
@@ -209,3 +229,10 @@ def _year_from_row(kind: str, row: dict[str, Any]) -> int | None:
         return int(str(value)[:4])
     except ValueError:
         return None
+
+
+def _should_report_count(current: int, total: int) -> bool:
+    if total <= 0 or current >= total:
+        return True
+    step = max(1, total // 100)
+    return current % step == 0

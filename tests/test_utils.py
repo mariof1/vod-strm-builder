@@ -101,10 +101,15 @@ def test_generate_uses_cached_m3u_catalog_for_selected_groups(tmp_path):
         encoding="utf-8",
     )
 
-    summary = generate(str(config))
+    progress_events = []
+    summary = generate(str(config), progress=progress_events.append)
 
     assert summary["catalog_source"] == "m3u"
     assert summary["movies_selected"] == 1
     assert summary["series_selected"] == 1
     assert summary["movies_written"] == 1
     assert summary["episodes_written"] == 1
+    assert progress_events[-1]["label"] == "Provider complete"
+    assert progress_events[-1]["percent"] == 100
+    assert any(event["label"] == "Scanning playlist catalog" for event in progress_events)
+    assert any(event["label"] == "Scanning series episodes" for event in progress_events)

@@ -1120,7 +1120,7 @@
     });
 
     els.runGenerate.addEventListener("click", async () => {
-      startManagedProgress("Starting generator...", {start: 5, ceiling: 18, intervalMs: 350});
+      startManagedProgress("Starting generator...", {start: 1, ceiling: 4, intervalMs: 350});
       let data = null;
       try {
         data = await apiJson("/api/generate", {
@@ -1415,7 +1415,8 @@
     function updateJobProgress(job) {
       const progress = job.progress || {};
       const name = progress.current_provider_name ? `: ${progress.current_provider_name}` : "";
-      const label = `Generator ${job.status}${name}`;
+      const phase = progress.phase_label ? ` - ${progress.phase_label}` : "";
+      const label = `Generator ${job.status}${name}${phase}`;
       let percent = typeof progress.percent === "number" ? progress.percent : state.progressValue;
       if (!["complete", "failed", "cancelled"].includes(job.status)) {
         percent = Math.max(percent, state.progressValue);

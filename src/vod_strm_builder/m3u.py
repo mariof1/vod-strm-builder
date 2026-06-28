@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
 from typing import NamedTuple
 
 import requests
@@ -64,6 +66,7 @@ def parse_selected_vod_catalog(
     movie_groups: set[str],
     series_groups: set[str],
     user_agent: str,
+    progress: Callable[[int, int | None], None] | None = None,
 ) -> tuple[list[MovieItem], list[SeriesItem], M3UCatalogStats]:
     movies: list[MovieItem] = []
     series_by_key: dict[str, SeriesItem] = {}
@@ -76,7 +79,7 @@ def parse_selected_vod_catalog(
     }
 
     extinf: str | None = None
-    for line in _source_lines(m3u_source, user_agent):
+    for line in _source_lines(m3u_source, user_agent, progress):
         clean_line = (line or "").strip()
         if clean_line.startswith("#EXTINF"):
             extinf = clean_line
@@ -116,6 +119,7 @@ def parse_series_episodes(
     user_agent: str,
     require_selected_group: bool,
     quality_words: tuple[str, ...],
+    progress: Callable[[int, int | None], None] | None = None,
 ) -> tuple[list[EpisodeItem], SeriesParseStats]:
     exact: dict[str, list[SeriesItem]] = {}
     fallback: dict[str, list[SeriesItem]] = {}
@@ -135,7 +139,7 @@ def parse_series_episodes(
     }
 
     extinf: str | None = None
-    for line in _source_lines(m3u_source, user_agent):
+    for line in _source_lines(m3u_source, user_agent, progress):
         extinf = _consume_series_line(
             line,
             extinf,
@@ -197,23 +201,53 @@ def _parse_episode_title(title: str) -> tuple[str, int, int, str] | None:
     return None
 
 
-def _iter_http_lines(url: str, user_agent: str):
+def _iter_http_lines(url: str, user_agent: str, progress: Callable[[int, int | None], None] | None = None):
     with requests.get(url, stream=True, timeout=(20, 180), headers={"User-Agent": user_agent}) as response:
         response.raise_for_status()
-        yield from (decode_m3u_line(line) for line in response.iter_lines(decode_unicode=True))
+        total = _int_or_none(response.headers.get("content-length"))
+        read = last_report = 0
+        for line in response.iter_lines(decode_unicode=False):
+            read += len(line or b"") + 1
+            if _should_report_progress(read, last_report, total):
+                last_report = read
+                if progress:
+                    progress(read, total)
+            yield decode_m3u_line(line)
+        final_read = total or read
+        if progress and last_report != final_read:
+            progress(final_read, total)
 
 
-def _iter_file_lines(path: str):
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            yield line.rstrip("\n")
+def _iter_file_lines(path: str, progress: Callable[[int, int | None], None] | None = None):
+    total = Path(path).stat().st_size
+    read = last_report = 0
+    with open(path, "rb") as fh:
+        for raw_line in fh:
+            read += len(raw_line)
+            if _should_report_progress(read, last_report, total):
+                last_report = read
+                if progress:
+                    progress(read, total)
+            yield decode_m3u_line(raw_line).rstrip("\n")
+    if progress and last_report != total:
+        progress(total, total)
 
 
-def _source_lines(m3u_source: str, user_agent: str):
+def _source_lines(
+    m3u_source: str,
+    user_agent: str,
+    progress: Callable[[int, int | None], None] | None = None,
+):
     if m3u_source.startswith(("http://", "https://")):
-        yield from _iter_http_lines(m3u_source, user_agent)
+        yield from _iter_http_lines(m3u_source, user_agent, progress)
     else:
-        yield from _iter_file_lines(m3u_source)
+        yield from _iter_file_lines(m3u_source, progress)
+
+
+def _should_report_progress(read: int, last_report: int, total: int | None) -> bool:
+    if total and read >= total:
+        return True
+    return read - last_report >= 2_000_000
 
 
 def _movie_from_m3u_line(title: str, group_title: str, attrs: dict[str, str], url: str) -> MovieItem | None:
@@ -262,6 +296,14 @@ def decode_m3u_line(line: object) -> str:
     if isinstance(line, bytes):
         return line.decode("utf-8", errors="replace")
     return str(line)
+
+
+def _int_or_none(value: object) -> int | None:
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _consume_series_line(

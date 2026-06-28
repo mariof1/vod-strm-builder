@@ -24,6 +24,7 @@ from .xtream import XtreamClient
 
 
 TERMINAL_STATES = {"complete", "failed", "cancelled"}
+PROGRESS_PREFIX = "__VOD_STRM_BUILDER_PROGRESS__ "
 logging.basicConfig(
     level=os.environ.get("VSB_LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -406,6 +407,9 @@ class Job:
         self.current_provider_index = 0
         self.current_provider_name = ""
         self.completed_providers = 0
+        self.current_provider_percent = 0.0
+        self.current_phase_label = ""
+        self.current_progress_event: dict[str, Any] = {}
 
     def start(self) -> None:
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -423,6 +427,9 @@ class Job:
                 provider_name = str(run["provider_name"])
                 self.current_provider_index = index
                 self.current_provider_name = provider_name
+                self.current_provider_percent = 1.0
+                self.current_phase_label = "Starting provider"
+                self.current_progress_event = {}
                 run_dir = self.job_dir / f"{index:02d}-{provider_id}"
                 run_dir.mkdir(parents=True, exist_ok=True)
                 config_path = run_dir / "config.yml"
@@ -446,6 +453,7 @@ class Job:
                     str(config_path),
                     "--summary-json",
                     str(run_summary_path),
+                    "--progress-jsonl",
                 ]
                 banner = f"Running provider {index}/{len(self.runs)}: {provider_name}\n"
                 log.write(banner)
@@ -463,6 +471,11 @@ class Job:
                 )
                 assert self.process.stdout is not None
                 for line in self.process.stdout:
+                    if self.apply_progress_line(line, provider_name):
+                        label = self.current_phase_label or "Working"
+                        log.write(f"Progress: {label} ({self.current_provider_percent:.1f}%)\n")
+                        log.flush()
+                        continue
                     log.write(line)
                     log.flush()
                     LOG.info("job %s provider=%s %s", self.id, provider_name, line.rstrip())
@@ -480,6 +493,7 @@ class Job:
                 if self.return_code != 0:
                     break
                 self.completed_providers = index
+                self.current_provider_percent = 100.0
                 log.write("\n")
             self.summary_path.write_text(json.dumps(aggregate, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         self.ended_at = time.time()
@@ -516,19 +530,51 @@ class Job:
         except json.JSONDecodeError:
             return None
 
+    def apply_progress_line(self, line: str, provider_name: str = "") -> bool:
+        text = line.strip()
+        if not text.startswith(PROGRESS_PREFIX):
+            return False
+        try:
+            event = json.loads(text[len(PROGRESS_PREFIX):])
+        except json.JSONDecodeError:
+            return True
+        self.current_progress_event = event if isinstance(event, dict) else {}
+        label = str(self.current_progress_event.get("label") or "").strip()
+        if label:
+            self.current_phase_label = label
+        if "percent" in self.current_progress_event:
+            try:
+                self.current_provider_percent = max(0.0, min(100.0, float(self.current_progress_event["percent"])))
+            except (TypeError, ValueError):
+                pass
+        LOG.info(
+            "job %s provider=%s progress=%.1f label=%s",
+            self.id,
+            provider_name or self.current_provider_name,
+            self.current_provider_percent,
+            self.current_phase_label,
+        )
+        return True
+
     def progress(self) -> dict[str, Any]:
         total = max(len(self.runs), 1)
         if self.status == "queued":
             percent = 0
         elif self.status == "running":
-            active_fraction = 0.35 if self.current_provider_index else 0
-            percent = int(min(95, ((self.completed_providers + active_fraction) / total) * 100))
+            if self.current_provider_index:
+                active_fraction = self.current_provider_percent / 100 if self.current_provider_percent > 0 else 0.35
+            else:
+                active_fraction = 0
+            percent = int(min(99, ((self.completed_providers + active_fraction) / total) * 100))
         elif self.status == "complete":
             percent = 100
         else:
             percent = int((self.completed_providers / total) * 100)
         return {
             "percent": percent,
+            "provider_percent": round(self.current_provider_percent, 1),
+            "phase_label": self.current_phase_label,
+            "phase": self.current_progress_event,
             "completed_providers": self.completed_providers,
             "current_provider_index": self.current_provider_index,
             "current_provider_name": self.current_provider_name,

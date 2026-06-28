@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from typing import Callable
 
 from .models import AppConfig, EpisodeItem, MovieItem, SeriesItem
 from .nfo import episode_nfo, movie_nfo, series_nfo
@@ -16,12 +17,19 @@ def write_text(path: Path, content: str, dry_run: bool) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def write_movies(config: AppConfig, client: XtreamClient, movies: list[MovieItem]) -> dict[str, int]:
+def write_movies(
+    config: AppConfig,
+    client: XtreamClient,
+    movies: list[MovieItem],
+    progress: Callable[[int, int], None] | None = None,
+) -> dict[str, int]:
     if config.output.clean:
         ensure_empty_dir(config.output.movies_dir, config.output.dry_run)
     written_paths: set[Path] = set()
     written = skipped_duplicate = 0
-    for item in movies:
+    total = len(movies)
+    last_progress = 0
+    for index, item in enumerate(movies, start=1):
         folder = config.output.movies_dir / folder_name(
             item.name,
             item.year,
@@ -33,16 +41,28 @@ def write_movies(config: AppConfig, client: XtreamClient, movies: list[MovieItem
         strm_path = folder / f"{filename}.strm"
         if strm_path in written_paths:
             skipped_duplicate += 1
+            if progress and _should_report_count(index, total):
+                last_progress = index
+                progress(index, total)
             continue
         write_text(strm_path, item.url or client.movie_url(item), config.output.dry_run)
         if config.output.generate_nfo:
             write_text(folder / f"{filename}.nfo", movie_nfo(item), config.output.dry_run)
         written_paths.add(strm_path)
         written += 1
+        if progress and _should_report_count(index, total):
+            last_progress = index
+            progress(index, total)
+    if progress and last_progress != total:
+        progress(total, total)
     return {"movies_written": written, "movie_duplicates_skipped": skipped_duplicate}
 
 
-def write_series(config: AppConfig, episodes: list[EpisodeItem]) -> dict[str, int]:
+def write_series(
+    config: AppConfig,
+    episodes: list[EpisodeItem],
+    progress: Callable[[int, int], None] | None = None,
+) -> dict[str, int]:
     if config.output.clean:
         ensure_empty_dir(config.output.series_dir, config.output.dry_run)
     grouped: dict[str, list[EpisodeItem]] = defaultdict(list)
@@ -50,6 +70,9 @@ def write_series(config: AppConfig, episodes: list[EpisodeItem]) -> dict[str, in
         grouped[ep.series.series_id].append(ep)
 
     series_written = episode_written = duplicate_paths = 0
+    processed = 0
+    total = len(episodes)
+    last_progress = 0
     written_paths: set[Path] = set()
     for eps in grouped.values():
         series = eps[0].series
@@ -63,10 +86,14 @@ def write_series(config: AppConfig, episodes: list[EpisodeItem]) -> dict[str, in
             write_text(series_folder / "tvshow.nfo", series_nfo(series), config.output.dry_run)
         wrote_any = False
         for ep in sorted(eps, key=lambda item: (item.season, item.episode, item.stream_id)):
+            processed += 1
             title = safe_filename(f"{clean_title(series.name)} - S{ep.season:02d}E{ep.episode:02d} - {ep.title}")
             path = series_folder / f"Season {ep.season:02d}" / f"{title}.strm"
             if path in written_paths:
                 duplicate_paths += 1
+                if progress and _should_report_count(processed, total):
+                    last_progress = processed
+                    progress(processed, total)
                 continue
             write_text(path, ep.url, config.output.dry_run)
             if config.output.generate_nfo:
@@ -74,10 +101,22 @@ def write_series(config: AppConfig, episodes: list[EpisodeItem]) -> dict[str, in
             written_paths.add(path)
             episode_written += 1
             wrote_any = True
+            if progress and _should_report_count(processed, total):
+                last_progress = processed
+                progress(processed, total)
         if wrote_any:
             series_written += 1
+    if progress and last_progress != total:
+        progress(total, total)
     return {
         "series_written": series_written,
         "episodes_written": episode_written,
         "episode_duplicates_skipped": duplicate_paths,
     }
+
+
+def _should_report_count(current: int, total: int) -> bool:
+    if total <= 0 or current >= total:
+        return True
+    step = max(1, total // 100)
+    return current % step == 0
