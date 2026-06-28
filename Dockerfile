@@ -1,0 +1,22 @@
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    VSB_WORK_DIR=/work \
+    PORT=8080
+
+WORKDIR /app
+
+COPY pyproject.toml README.md LICENSE ./
+COPY src ./src
+COPY web ./web
+
+RUN pip install --no-cache-dir -e . \
+    && useradd --create-home --uid 1000 appuser \
+    && mkdir -p /work /media/movies /media/tvshows \
+    && chown -R appuser:appuser /work /media
+
+USER appuser
+
+EXPOSE 8080
+
+CMD ["vod-strm-builder-web", "--host", "0.0.0.0", "--port", "8080", "--work-dir", "/work"]

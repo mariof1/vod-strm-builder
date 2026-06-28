@@ -10,6 +10,33 @@ It writes:
 
 The important design choice is that series episodes are read from the provider's `m3u_plus` playlist instead of calling `player_api.php?action=get_series_info` for every series. That avoids slow or flaky per-series Xtream API scans.
 
+## Docker Web App
+
+The easiest way to run everything from the browser is the local Docker app:
+
+```bash
+docker compose up -d --build
+```
+
+Open:
+
+```text
+http://localhost:8080
+```
+
+The web app can fetch or upload the playlist, select movie and series groups, write the generator config into the container work directory, run the Python generator, and show the job log.
+
+Edit `docker-compose.yml` before first run so the container output paths point at your media folders:
+
+```yaml
+volumes:
+  - ./work:/work
+  - /mnt/nas/strm/movies:/media/movies
+  - /mnt/nas/strm/tvshows:/media/tvshows
+```
+
+The frontend defaults to `/media/movies` and `/media/tvshows`, which are the in-container paths from the compose file.
+
 ## Install
 
 ```bash
@@ -73,9 +100,9 @@ jellyfin:
   scan_on_complete: true
 ```
 
-## Browser Config Builder
+## Static Browser Config Builder
 
-Open [web/group-picker.html](web/group-picker.html) in a browser to build the generator files from a single page.
+The Docker app serves [web/group-picker.html](web/group-picker.html) with backend APIs. The same file can still be opened directly in a browser to build config files manually, but generator runs and server-side playlist fetching require the Docker backend.
 
 The page lets you enter provider settings, output paths, TMDB/Jellyfin options, load or paste an M3U playlist, select movie and series groups, then download:
 
@@ -84,7 +111,7 @@ The page lets you enter provider settings, output paths, TMDB/Jellyfin options, 
 - `.env`
 - `run-vod-strm-builder.sh`
 
-Browser security may block direct playlist fetching from some providers. In that case, download the M3U in the browser and open the file in the page, or paste the playlist text.
+When served by Docker, playlist fetching runs through the local backend so browser CORS does not matter. If you open the HTML file directly, use upload/paste instead of backend actions.
 
 ## Selected Groups And Catalog
 

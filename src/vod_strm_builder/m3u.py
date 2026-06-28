@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from typing import NamedTuple
 
 import requests
@@ -15,6 +16,29 @@ EPISODE_PATTERNS = (
     re.compile(r"^(?P<base>.+?)\s+[Ss](?P<s>\d{1,2})\s*[ ._-]*\s*[Ee](?P<e>\d{1,4})(?P<tail>.*)$"),
     re.compile(r"^(?P<base>.+?)\s+(?P<s>\d{1,2})x(?P<e>\d{1,4})(?P<tail>.*)$", re.IGNORECASE),
 )
+
+
+@dataclass
+class M3UGroupSummary:
+    name: str
+    movie_count: int = 0
+    series_count: int = 0
+    live_count: int = 0
+    samples: set[str] = field(default_factory=set)
+
+    @property
+    def total(self) -> int:
+        return self.movie_count + self.series_count + self.live_count
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "movie_count": self.movie_count,
+            "series_count": self.series_count,
+            "live_count": self.live_count,
+            "total": self.total,
+            "samples": sorted(self.samples)[:3],
+        }
 
 
 class SeriesParseStats(NamedTuple):
@@ -68,6 +92,36 @@ def parse_series_episodes(
             )
 
     return episodes, SeriesParseStats(**stats)
+
+
+def scan_m3u_groups(lines: Iterable[str]) -> list[M3UGroupSummary]:
+    groups: dict[str, M3UGroupSummary] = {}
+    extinf: str | None = None
+    for raw_line in lines:
+        line = (raw_line or "").strip()
+        if not line:
+            continue
+        if line.startswith("#EXTINF"):
+            extinf = line
+            continue
+        if line.startswith("#") or not extinf:
+            continue
+
+        attrs = dict(ATTR_RE.findall(extinf))
+        group_name = (attrs.get("group-title") or "Ungrouped").strip() or "Ungrouped"
+        title = (attrs.get("tvg-name") or extinf.split(",", 1)[-1] or line).strip()
+        group = groups.setdefault(group_name, M3UGroupSummary(name=group_name))
+        if "/movie/" in line.lower():
+            group.movie_count += 1
+        elif "/series/" in line.lower():
+            group.series_count += 1
+        else:
+            group.live_count += 1
+        if title and len(group.samples) < 8:
+            group.samples.add(title)
+        extinf = None
+
+    return sorted(groups.values(), key=lambda group: group.name.lower())
 
 
 def _parse_episode_title(title: str) -> tuple[str, int, int, str] | None:

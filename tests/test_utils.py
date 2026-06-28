@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from vod_strm_builder.cli import existing_tmdb_stats
-from vod_strm_builder.m3u import _parse_episode_title
+from vod_strm_builder.m3u import _parse_episode_title, scan_m3u_groups
 from vod_strm_builder.utils import clean_title, folder_name
 
 
@@ -25,3 +25,20 @@ def test_existing_tmdb_stats_counts_provider_ids():
         "movies_with_provider_tmdb_id": 1,
         "series_with_provider_tmdb_id": 1,
     }
+
+
+def test_scan_m3u_groups_counts_vod_types():
+    groups = scan_m3u_groups(
+        [
+            '#EXTINF:-1 group-title="Movies" tvg-name="Film",Film',
+            "http://example.test/movie/user/pass/1.mp4",
+            '#EXTINF:-1 group-title="Series" tvg-name="Show S01 E01",Show S01 E01',
+            "http://example.test/series/user/pass/2.mkv",
+            '#EXTINF:-1 group-title="Live" tvg-name="News",News',
+            "http://example.test/live/user/pass/3.ts",
+        ]
+    )
+    by_name = {group.name: group for group in groups}
+    assert by_name["Movies"].movie_count == 1
+    assert by_name["Series"].series_count == 1
+    assert by_name["Live"].live_count == 1

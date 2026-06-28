@@ -1,0 +1,13 @@
+services:
+  vod-strm-builder:
+    build: .
+    image: vod-strm-builder:local
+    container_name: vod-strm-builder
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./work:/work
+      # Change these host paths to wherever the generated library should land.
+      - /mnt/nas/strm/movies:/media/movies
+      - /mnt/nas/strm/tvshows:/media/tvshows
+    restart: unless-stopped
