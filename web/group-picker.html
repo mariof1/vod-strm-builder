@@ -396,14 +396,17 @@
     }
 
     .output-tabs {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      display: flex;
+      flex-wrap: wrap;
       gap: 6px;
     }
 
     .output-tabs button {
+      flex: 0 0 auto;
+      min-width: max-content;
       min-height: 32px;
       padding: 0 8px;
+      white-space: nowrap;
     }
 
     .output-tabs button.active {
@@ -441,8 +444,8 @@
       .center { min-height: 620px; }
       .grid-2,
       .grid-3,
-      .summary,
-      .output-tabs { grid-template-columns: 1fr; }
+      .summary { grid-template-columns: 1fr; }
+      .output-tabs button { flex: 1 1 calc(50% - 3px); }
       header {
         display: grid;
         align-items: start;

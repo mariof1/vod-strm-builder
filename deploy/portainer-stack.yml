@@ -1,6 +1,8 @@
+name: vod-strm-builder
+
 services:
   vod-strm-builder:
-    image: ghcr.io/mariof1/vod-strm-builder:latest
+    image: mars148/vod-strm-builder:latest
     container_name: vod-strm-builder
     ports:
       - "18080:8080"

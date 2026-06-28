@@ -39,10 +39,10 @@ The frontend defaults to `/media/movies` and `/media/tvshows`, which are the in-
 
 ### Public Image And Portainer
 
-GitHub Actions builds and publishes the public image:
+GitHub Actions builds and publishes the public Docker Hub image:
 
 ```text
-ghcr.io/mariof1/vod-strm-builder:latest
+mars148/vod-strm-builder:latest
 ```
 
 For Portainer, use the public stack file:
