@@ -204,19 +204,8 @@
       transition: width 180ms ease;
     }
 
-    .progress-fill.indeterminate {
-      position: absolute;
-      width: 42%;
-      animation: progress-slide 1.1s ease-in-out infinite;
-    }
-
     .progress-area.error .progress-fill {
       background: var(--red);
-    }
-
-    @keyframes progress-slide {
-      0% { transform: translateX(-110%); }
-      100% { transform: translateX(250%); }
     }
 
     main {
@@ -918,6 +907,8 @@
       jobStatus: null,
       pollTimer: null,
       progressHideTimer: null,
+      progressTimer: null,
+      progressValue: 0,
       groupSource: "m3u",
     };
 
@@ -1039,12 +1030,14 @@
     els.fileInput.addEventListener("change", async () => {
       const file = els.fileInput.files && els.fileInput.files[0];
       if (!file) return;
-      const data = await withProgress(`Uploading ${file.name}...`, async () => {
+      const data = await withProgress(`Uploading ${file.name}...`, async (setPercent) => {
         const body = new FormData();
         body.append("file", file);
         body.append("payload", JSON.stringify(settingsPayload()));
-        return apiForm("/api/playlist/upload", body);
-      }, "Playlist uploaded");
+        return apiForm("/api/playlist/upload", body, (ratio) => {
+          setPercent(10 + (ratio * 70), `Uploading ${file.name}...`);
+        });
+      }, "Playlist uploaded", {start: 5, ceiling: 92});
       if (data) loadGroups(data, file.name);
     });
 
@@ -1127,7 +1120,7 @@
     });
 
     els.runGenerate.addEventListener("click", async () => {
-      startProgress("Starting generator...", 5);
+      startManagedProgress("Starting generator...", {start: 5, ceiling: 18, intervalMs: 350});
       let data = null;
       try {
         data = await apiJson("/api/generate", {
@@ -1138,6 +1131,7 @@
         failProgress(error);
         return;
       }
+      stopProgressMotion();
       if (data) {
         state.currentJobId = data.id;
         state.jobStatus = data;
@@ -1193,9 +1187,41 @@
       return readApiResponse(response);
     }
 
-    async function apiForm(url, body) {
+    async function apiForm(url, body, onUploadProgress = null) {
+      if (onUploadProgress) {
+        return apiFormWithUploadProgress(url, body, onUploadProgress);
+      }
       const response = await fetch(url, {method: "POST", body});
       return readApiResponse(response);
+    }
+
+    function apiFormWithUploadProgress(url, body, onUploadProgress) {
+      return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open("POST", url);
+        request.upload.addEventListener("progress", (event) => {
+          if (event.lengthComputable && event.total > 0) {
+            onUploadProgress(event.loaded / event.total);
+          }
+        });
+        request.addEventListener("load", () => {
+          const contentType = request.getResponseHeader("content-type") || "";
+          let data = null;
+          try {
+            data = contentType.includes("application/json") ? JSON.parse(request.responseText) : {error: request.responseText};
+          } catch {
+            data = {error: request.responseText || "Invalid server response"};
+          }
+          if (request.status < 200 || request.status >= 300) {
+            reject(new Error(data.error || `HTTP ${request.status}`));
+          } else {
+            resolve(data);
+          }
+        });
+        request.addEventListener("error", () => reject(new Error("Upload failed")));
+        request.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+        request.send(body);
+      });
     }
 
     async function apiGet(url) {
@@ -1390,7 +1416,10 @@
       const progress = job.progress || {};
       const name = progress.current_provider_name ? `: ${progress.current_provider_name}` : "";
       const label = `Generator ${job.status}${name}`;
-      const percent = typeof progress.percent === "number" ? progress.percent : null;
+      let percent = typeof progress.percent === "number" ? progress.percent : state.progressValue;
+      if (!["complete", "failed", "cancelled"].includes(job.status)) {
+        percent = Math.max(percent, state.progressValue);
+      }
       updateProgress(label, percent);
     }
 
@@ -1855,20 +1884,13 @@
       if (value !== undefined && value !== null) element.checked = Boolean(value);
     }
 
-    function startProgress(label, percent = null) {
+    function startProgress(label, percent = 0) {
       window.clearTimeout(state.progressHideTimer);
+      stopProgressMotion();
       els.progressArea.hidden = false;
       els.progressArea.classList.remove("error");
       els.progressLabel.textContent = label;
-      els.progressFill.classList.toggle("indeterminate", percent === null);
-      if (percent === null) {
-        els.progressFill.style.width = "";
-        els.progressPercent.textContent = "";
-      } else {
-        const value = clampPercent(percent);
-        els.progressFill.style.width = `${value}%`;
-        els.progressPercent.textContent = `${value}%`;
-      }
+      setProgressPercent(percent);
       setStatus(label);
     }
 
@@ -1880,24 +1902,15 @@
         els.progressLabel.textContent = label;
         setStatus(label);
       }
-      els.progressFill.classList.toggle("indeterminate", percent === null);
-      if (percent === null) {
-        els.progressFill.style.width = "";
-        els.progressPercent.textContent = "";
-      } else {
-        const value = clampPercent(percent);
-        els.progressFill.style.width = `${value}%`;
-        els.progressPercent.textContent = `${value}%`;
-      }
+      setProgressPercent(percent === null ? state.progressValue : percent);
     }
 
     function finishProgress(message = null) {
+      stopProgressMotion();
       if (message) setStatus(message);
       els.progressArea.hidden = false;
       els.progressArea.classList.remove("error");
-      els.progressFill.classList.remove("indeterminate");
-      els.progressFill.style.width = "100%";
-      els.progressPercent.textContent = "100%";
+      setProgressPercent(100);
       els.progressLabel.textContent = message || els.progressLabel.textContent || "Complete";
       state.progressHideTimer = window.setTimeout(() => {
         els.progressArea.hidden = true;
@@ -1905,12 +1918,11 @@
     }
 
     function failProgress(error) {
+      stopProgressMotion();
       const message = error instanceof Error ? error.message : String(error);
       els.progressArea.hidden = false;
       els.progressArea.classList.add("error");
-      els.progressFill.classList.remove("indeterminate");
-      els.progressFill.style.width = "100%";
-      els.progressPercent.textContent = "";
+      setProgressPercent(100);
       els.progressLabel.textContent = message;
       showError(error);
       state.progressHideTimer = window.setTimeout(() => {
@@ -1919,10 +1931,13 @@
       }, 1800);
     }
 
-    async function withProgress(label, action, successMessage = null) {
-      startProgress(label);
+    async function withProgress(label, action, successMessage = null, options = {}) {
+      startManagedProgress(label, options);
       try {
-        const result = await action();
+        const result = await action((percent, progressLabel = null) => {
+          updateProgress(progressLabel, percent);
+        });
+        updateProgress(successMessage || label, options.finishAt || 96);
         finishProgress(successMessage);
         return result;
       } catch (error) {
@@ -1932,8 +1947,38 @@
     }
 
     function quickProgress(message) {
-      startProgress(message, 35);
+      startProgress(message, 100);
       finishProgress(message);
+    }
+
+    function startManagedProgress(label, options = {}) {
+      const start = options.start ?? 8;
+      const ceiling = Math.max(start, Math.min(options.ceiling ?? 88, 98));
+      const intervalMs = options.intervalMs || 500;
+      startProgress(label, start);
+      state.progressTimer = window.setInterval(() => {
+        const remaining = ceiling - state.progressValue;
+        if (remaining <= 0) {
+          stopProgressMotion();
+          return;
+        }
+        const step = Math.max(1, Math.ceil(remaining * 0.16));
+        updateProgress(null, Math.min(ceiling, state.progressValue + step));
+      }, intervalMs);
+    }
+
+    function stopProgressMotion() {
+      if (state.progressTimer) {
+        window.clearInterval(state.progressTimer);
+        state.progressTimer = null;
+      }
+    }
+
+    function setProgressPercent(percent) {
+      const value = clampPercent(percent);
+      state.progressValue = value;
+      els.progressFill.style.width = `${value}%`;
+      els.progressPercent.textContent = `${value}%`;
     }
 
     function clampPercent(value) {
