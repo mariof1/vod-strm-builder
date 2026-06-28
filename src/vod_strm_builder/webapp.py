@@ -128,8 +128,8 @@ class AppState:
                             yield text
 
                     return [group.to_dict() for group in scan_m3u_groups(lines())]
-        except requests.RequestException:
-            raise RuntimeError("Playlist fetch failed for the configured provider") from None
+        except requests.RequestException as exc:
+            raise RuntimeError(describe_playlist_fetch_error(exc)) from None
 
     def write_and_scan_playlist(self, text: str) -> list[dict[str, object]]:
         self.playlist_cache.write_text(text, encoding="utf-8")
@@ -418,6 +418,22 @@ def as_bool(value: Any) -> bool:
 
 def json_error(exc: Exception):
     return jsonify({"error": str(exc)}), 400
+
+
+def describe_playlist_fetch_error(exc: requests.RequestException) -> str:
+    prefix = "Playlist fetch failed for the configured provider"
+    if isinstance(exc, requests.Timeout):
+        return f"{prefix}: request timed out."
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        status = exc.response.status_code
+        reason = (exc.response.reason or "").strip()
+        suffix = f"HTTP {status}"
+        if reason:
+            suffix = f"{suffix} {reason}"
+        return f"{prefix}: {suffix}."
+    if isinstance(exc, requests.ConnectionError):
+        return f"{prefix}: connection failed."
+    return f"{prefix}: {exc.__class__.__name__}."
 
 
 def main() -> None:

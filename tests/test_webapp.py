@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from vod_strm_builder.webapp import build_config, job_environment
+import requests
+
+from vod_strm_builder.webapp import build_config, describe_playlist_fetch_error, job_environment
 
 
 def test_build_config_uses_cached_playlist_and_env_secrets(tmp_path: Path):
@@ -30,3 +32,17 @@ def test_build_config_uses_cached_playlist_and_env_secrets(tmp_path: Path):
     assert config["output"]["movies_dir"] == "/media/movies"
     assert env["XTREAM_USERNAME"] == "user"
     assert env["XTREAM_PASSWORD"] == "pass"
+
+
+def test_describe_playlist_fetch_error_hides_url():
+    response = requests.Response()
+    response.status_code = 403
+    response.reason = "Forbidden"
+    response.url = "http://provider.example.com/get.php?username=user&password=secret"
+    error = requests.HTTPError("403 Client Error", response=response)
+
+    message = describe_playlist_fetch_error(error)
+
+    assert message == "Playlist fetch failed for the configured provider: HTTP 403 Forbidden."
+    assert "provider.example.com" not in message
+    assert "secret" not in message
