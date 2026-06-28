@@ -37,6 +37,28 @@ volumes:
 
 The frontend defaults to `/media/movies` and `/media/tvshows`, which are the in-container paths from the compose file.
 
+### Public Image And Portainer
+
+GitHub Actions builds and publishes the public image:
+
+```text
+ghcr.io/mariof1/vod-strm-builder:latest
+```
+
+For Portainer, use the public stack file:
+
+```text
+deploy/portainer-stack.yml
+```
+
+The stack publishes the app on host port `18080` and uses these default host paths:
+
+```text
+/opt/vod-strm-builder/work
+/opt/vod-strm-builder/movies
+/opt/vod-strm-builder/tvshows
+```
+
 ## Install
 
 ```bash

@@ -1,0 +1,14 @@
+services:
+  vod-strm-builder:
+    image: ghcr.io/mariof1/vod-strm-builder:latest
+    container_name: vod-strm-builder
+    ports:
+      - "18080:8080"
+    environment:
+      VSB_WORK_DIR: /work
+      PORT: "8080"
+    volumes:
+      - /opt/vod-strm-builder/work:/work
+      - /opt/vod-strm-builder/movies:/media/movies
+      - /opt/vod-strm-builder/tvshows:/media/tvshows
+    restart: unless-stopped
