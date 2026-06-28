@@ -7,10 +7,11 @@ from typing import NamedTuple
 
 import requests
 
-from .models import EpisodeItem, SeriesItem
-from .utils import normalize_name, qualityless_name
+from .models import EpisodeItem, MovieItem, SeriesItem
+from .utils import extract_year, normalize_name, qualityless_name
 
 ATTR_RE = re.compile(r'([\w-]+)="([^"]*)"')
+MOVIE_URL_RE = re.compile(r"/movie/[^/]+/[^/]+/(?P<stream>[^/.?#]+)\.(?P<ext>[^/?#]+)")
 URL_RE = re.compile(r"/series/[^/]+/[^/]+/(?P<stream>[^/.?#]+)\.(?P<ext>[^/?#]+)")
 EPISODE_PATTERNS = (
     re.compile(r"^(?P<base>.+?)\s+[Ss](?P<s>\d{1,2})\s*[ ._-]*\s*[Ee](?P<e>\d{1,4})(?P<tail>.*)$"),
@@ -50,6 +51,64 @@ class SeriesParseStats(NamedTuple):
     ambiguous: int
 
 
+class M3UCatalogStats(NamedTuple):
+    seen_movie_urls: int
+    selected_movies: int
+    seen_series_urls: int
+    parsed_series_titles: int
+    selected_series: int
+
+
+def parse_selected_vod_catalog(
+    m3u_source: str,
+    movie_groups: set[str],
+    series_groups: set[str],
+    user_agent: str,
+) -> tuple[list[MovieItem], list[SeriesItem], M3UCatalogStats]:
+    movies: list[MovieItem] = []
+    series_by_key: dict[str, SeriesItem] = {}
+    stats = {
+        "seen_movie_urls": 0,
+        "selected_movies": 0,
+        "seen_series_urls": 0,
+        "parsed_series_titles": 0,
+        "selected_series": 0,
+    }
+
+    extinf: str | None = None
+    for line in _source_lines(m3u_source, user_agent):
+        clean_line = (line or "").strip()
+        if clean_line.startswith("#EXTINF"):
+            extinf = clean_line
+            continue
+        if clean_line.startswith("#") or not extinf:
+            continue
+
+        attrs = dict(ATTR_RE.findall(extinf))
+        group_title = (attrs.get("group-title") or "").strip()
+        title = (attrs.get("tvg-name") or extinf.split(",", 1)[-1] or clean_line).strip()
+        lower = clean_line.lower()
+        if "/movie/" in lower:
+            stats["seen_movie_urls"] += 1
+            if group_title in movie_groups:
+                movie = _movie_from_m3u_line(title, group_title, attrs, clean_line)
+                if movie:
+                    movies.append(movie)
+                    stats["selected_movies"] += 1
+        elif "/series/" in lower:
+            stats["seen_series_urls"] += 1
+            if group_title in series_groups:
+                series = _series_from_m3u_line(title, group_title, attrs)
+                if series:
+                    stats["parsed_series_titles"] += 1
+                    if series.series_id not in series_by_key:
+                        series_by_key[series.series_id] = series
+                        stats["selected_series"] += 1
+        extinf = None
+
+    return movies, sorted(series_by_key.values(), key=lambda item: item.name.lower()), M3UCatalogStats(**stats)
+
+
 def parse_series_episodes(
     m3u_source: str,
     selected_series: Iterable[SeriesItem],
@@ -75,21 +134,20 @@ def parse_series_episodes(
         "ambiguous": 0,
     }
 
-    for line_iter in (_iter_http_lines(m3u_source, user_agent) if m3u_source.startswith(("http://", "https://")) else _iter_file_lines(m3u_source),):
-        extinf: str | None = None
-        for line in line_iter:
-            extinf = _consume_series_line(
-                line,
-                extinf,
-                selected_groups,
-                require_selected_group,
-                exact,
-                fallback,
-                quality_words,
-                seen_stream_ids,
-                episodes,
-                stats,
-            )
+    extinf: str | None = None
+    for line in _source_lines(m3u_source, user_agent):
+        extinf = _consume_series_line(
+            line,
+            extinf,
+            selected_groups,
+            require_selected_group,
+            exact,
+            fallback,
+            quality_words,
+            seen_stream_ids,
+            episodes,
+            stats,
+        )
 
     return episodes, SeriesParseStats(**stats)
 
@@ -149,6 +207,53 @@ def _iter_file_lines(path: str):
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for line in fh:
             yield line.rstrip("\n")
+
+
+def _source_lines(m3u_source: str, user_agent: str):
+    if m3u_source.startswith(("http://", "https://")):
+        yield from _iter_http_lines(m3u_source, user_agent)
+    else:
+        yield from _iter_file_lines(m3u_source)
+
+
+def _movie_from_m3u_line(title: str, group_title: str, attrs: dict[str, str], url: str) -> MovieItem | None:
+    match = MOVIE_URL_RE.search(url)
+    if not match:
+        return None
+    return MovieItem(
+        name=title,
+        stream_id=match.group("stream"),
+        category_id=group_title,
+        extension=match.group("ext").split("?", 1)[0].lower(),
+        year=extract_year(title),
+        tmdb_id=None,
+        imdb_id=None,
+        plot=None,
+        genre=None,
+        rating=None,
+        cover=attrs.get("tvg-logo") or None,
+        url=url,
+    )
+
+
+def _series_from_m3u_line(title: str, group_title: str, attrs: dict[str, str]) -> SeriesItem | None:
+    parsed = _parse_episode_title(title)
+    if not parsed:
+        return None
+    base_name, _season, _episode_num, _episode_title = parsed
+    series_id = normalize_name(base_name)
+    return SeriesItem(
+        name=base_name,
+        series_id=series_id,
+        category_id=group_title,
+        year=extract_year(base_name),
+        tmdb_id=None,
+        imdb_id=None,
+        plot=None,
+        genre=None,
+        rating=None,
+        cover=attrs.get("tvg-logo") or None,
+    )
 
 
 def decode_m3u_line(line: object) -> str:

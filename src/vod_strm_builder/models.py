@@ -88,6 +88,7 @@ class MovieItem:
     genre: str | None
     rating: str | None
     cover: str | None
+    url: str | None = None
 
 
 @dataclass(frozen=True)

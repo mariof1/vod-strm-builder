@@ -7,7 +7,7 @@ from pathlib import Path
 from .catalog import load_catalog
 from .config import load_config
 from .jellyfin import notify_jellyfin
-from .m3u import parse_series_episodes
+from .m3u import parse_selected_vod_catalog, parse_series_episodes
 from .tmdb import enrich_with_tmdb
 from .writer import write_movies, write_series
 from .xtream import XtreamClient
@@ -29,6 +29,51 @@ def selected_category_ids(categories: dict[str, str], names: set[str], ids: set[
     return resolved
 
 
+def can_use_m3u_catalog(config) -> bool:
+    return bool(
+        config.provider.m3u_file
+        and not config.filters.movie_category_ids
+        and not config.filters.series_category_ids
+    )
+
+
+def load_provider_catalog(config, client: XtreamClient):
+    movie_categories = client.categories("movie")
+    series_categories = client.categories("series")
+    movie_ids = selected_category_ids(movie_categories, config.filters.movie_groups, config.filters.movie_category_ids)
+    series_ids = selected_category_ids(series_categories, config.filters.series_groups, config.filters.series_category_ids)
+
+    all_movies = client.movies()
+    all_series = client.series()
+    movies = [item for item in all_movies if str(item.category_id) in movie_ids]
+    series = [item for item in all_series if str(item.category_id) in series_ids]
+
+    return movies, series, {
+        "catalog_source": "xtream_api",
+        "selected_movie_categories": len(movie_ids),
+        "selected_series_categories": len(series_ids),
+        "provider_movies_seen": len(all_movies),
+        "provider_series_seen": len(all_series),
+        "movies_selected": len(movies),
+        "series_selected": len(series),
+    }
+
+
+def load_m3u_catalog(config, client: XtreamClient):
+    movies, series, stats = parse_selected_vod_catalog(
+        client.m3u_source(),
+        config.filters.movie_groups,
+        config.filters.series_groups,
+        config.provider.user_agent,
+    )
+    return movies, series, {
+        "catalog_source": "m3u",
+        "movies_selected": len(movies),
+        "series_selected": len(series),
+        "m3u_catalog_parse": stats._asdict(),
+    }
+
+
 def generate(config_path: str) -> dict[str, object]:
     config = load_config(config_path)
     client = XtreamClient(config.provider)
@@ -42,24 +87,10 @@ def generate(config_path: str) -> dict[str, object]:
             "series_selected": len(series),
         }
     else:
-        movie_categories = client.categories("movie")
-        series_categories = client.categories("series")
-        movie_ids = selected_category_ids(movie_categories, config.filters.movie_groups, config.filters.movie_category_ids)
-        series_ids = selected_category_ids(series_categories, config.filters.series_groups, config.filters.series_category_ids)
-
-        all_movies = client.movies()
-        all_series = client.series()
-        movies = [item for item in all_movies if str(item.category_id) in movie_ids]
-        series = [item for item in all_series if str(item.category_id) in series_ids]
-
-        summary = {
-            "selected_movie_categories": len(movie_ids),
-            "selected_series_categories": len(series_ids),
-            "provider_movies_seen": len(all_movies),
-            "provider_series_seen": len(all_series),
-            "movies_selected": len(movies),
-            "series_selected": len(series),
-        }
+        if can_use_m3u_catalog(config):
+            movies, series, summary = load_m3u_catalog(config, client)
+        else:
+            movies, series, summary = load_provider_catalog(config, client)
 
     summary.update(existing_tmdb_stats(movies, series))
     movies, series, tmdb_stats = enrich_with_tmdb(config, movies, series)

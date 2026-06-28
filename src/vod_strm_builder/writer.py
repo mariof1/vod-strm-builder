@@ -34,7 +34,7 @@ def write_movies(config: AppConfig, client: XtreamClient, movies: list[MovieItem
         if strm_path in written_paths:
             skipped_duplicate += 1
             continue
-        write_text(strm_path, client.movie_url(item), config.output.dry_run)
+        write_text(strm_path, item.url or client.movie_url(item), config.output.dry_run)
         if config.output.generate_nfo:
             write_text(folder / f"{filename}.nfo", movie_nfo(item), config.output.dry_run)
         written_paths.add(strm_path)
@@ -81,4 +81,3 @@ def write_series(config: AppConfig, episodes: list[EpisodeItem]) -> dict[str, in
         "episodes_written": episode_written,
         "episode_duplicates_skipped": duplicate_paths,
     }
-
