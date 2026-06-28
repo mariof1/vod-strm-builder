@@ -479,7 +479,9 @@
       display: inline-grid;
       place-items: center;
       width: 28px;
+      min-height: 28px;
       height: 28px;
+      padding: 0;
       border: 1px solid var(--line);
       border-radius: 6px;
       background: #0d0f13;
@@ -488,12 +490,6 @@
       font-weight: 700;
       font-size: 12px;
       user-select: none;
-    }
-
-    .pick input {
-      position: absolute;
-      opacity: 0;
-      pointer-events: none;
     }
 
     .pick.movie.on {
@@ -1433,21 +1429,22 @@
     function pick(group, kind) {
       const set = kind === "movie" ? state.selectedMovies : state.selectedSeries;
       const count = kind === "movie" ? group.movieCount : group.seriesCount;
-      const label = document.createElement("label");
-      label.className = `pick ${kind}${set.has(group.key) ? " on" : ""}${count <= 0 ? " disabled" : ""}`;
-      label.title = kind === "movie" ? "Movie group" : "Series group";
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = set.has(group.key);
-      input.disabled = count <= 0;
-      input.addEventListener("change", () => {
-        if (input.checked) set.add(group.key);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `pick ${kind}${set.has(group.key) ? " on" : ""}${count <= 0 ? " disabled" : ""}`;
+      button.title = kind === "movie" ? "Movie group" : "Series group";
+      button.disabled = count <= 0;
+      button.setAttribute("aria-pressed", set.has(group.key) ? "true" : "false");
+      button.addEventListener("click", () => {
+        const selected = !set.has(group.key);
+        if (selected) set.add(group.key);
         else set.delete(group.key);
-        label.classList.toggle("on", input.checked);
+        button.classList.toggle("on", selected);
+        button.setAttribute("aria-pressed", selected ? "true" : "false");
         renderSelectionChange();
       });
-      label.append(input, document.createTextNode(kind === "movie" ? "M" : "S"));
-      return label;
+      button.textContent = kind === "movie" ? "M" : "S";
+      return button;
     }
 
     function cell(value, className) {

@@ -37,7 +37,11 @@ def create_app(work_dir: Path | None = None) -> Flask:
 
     @app.get("/")
     def index():
-        return send_file(frontend_path())
+        response = send_file(frontend_path(), max_age=0)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
     @app.get("/api/health")
     def health():
