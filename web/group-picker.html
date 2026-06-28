@@ -1959,8 +1959,7 @@
     }
 
     function quickProgress(message) {
-      startProgress(message, 100);
-      finishProgress(message);
+      setStatus(message);
     }
 
     function startManagedProgress(label, options = {}) {
