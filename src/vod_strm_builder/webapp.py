@@ -49,7 +49,7 @@ def create_app(work_dir: Path | None = None) -> Flask:
 
     @app.get("/api/groups")
     def get_groups():
-        return jsonify(state.load_group_cache())
+        return jsonify(state.load_or_rebuild_group_cache())
 
     @app.post("/api/settings")
     def save_settings():
@@ -237,6 +237,31 @@ class AppState:
         count = len(groups) if isinstance(groups, list) else 0
         LOG.info("loaded web group cache path=%s groups=%s", self.groups_path, count)
         return data
+
+    def load_or_rebuild_group_cache(self) -> dict[str, Any]:
+        cached = self.load_group_cache()
+        if cached.get("groups"):
+            return cached
+
+        settings = self.load_settings()
+        configured = settings.get("settings") if isinstance(settings.get("settings"), dict) else settings
+        providers = settings_providers(configured) or [{"id": "default", "name": "Provider 1"}]
+        groups: list[dict[str, object]] = []
+        for provider in providers:
+            provider_id = provider_identifier(provider)
+            playlist_cache = self.playlist_cache_for(provider_id)
+            if not playlist_cache.exists():
+                continue
+            provider_name = provider_label(provider)
+            LOG.info("rebuilding web group cache from playlist provider=%s path=%s", provider_name, playlist_cache)
+            groups.extend(tag_groups(self.scan_cached_playlist(provider_id), provider_id, provider_name))
+
+        if not groups:
+            return cached
+
+        response = group_response(groups, playlist_cached=True, source="m3u")
+        self.save_group_cache(response)
+        return response
 
     def save_group_cache(self, payload: dict[str, object]) -> None:
         self.groups_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

@@ -147,6 +147,45 @@ def test_group_cache_api_persists_last_scan(tmp_path: Path):
     assert (tmp_path / "web-groups.json").exists()
 
 
+def test_group_cache_api_rebuilds_from_cached_playlist(tmp_path: Path):
+    state = AppState(tmp_path)
+    state.save_settings(
+        {
+            "settings": {
+                "providers": [
+                    {
+                        "id": "main",
+                        "name": "Main",
+                        "server_url": "http://provider.example.com",
+                        "username": "user",
+                        "password": "secret",
+                    }
+                ]
+            }
+        }
+    )
+    state.write_and_scan_playlist(
+        "\n".join(
+            [
+                "#EXTM3U",
+                '#EXTINF:-1 group-title="Cached Movies" tvg-name="Film",Film',
+                "http://provider.example.com/movie/user/pass/1.mp4",
+            ]
+        ),
+        "main",
+    )
+    app = create_app(tmp_path)
+
+    response = app.test_client().get("/api/groups")
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert data["groups"][0]["name"] == "Cached Movies"
+    assert data["groups"][0]["provider_id"] == "main"
+    assert data["stats"]["movie_entries"] == 1
+    assert (tmp_path / "web-groups.json").exists()
+
+
 def test_multi_provider_selection_is_split_by_provider():
     providers = settings_providers(
         {
