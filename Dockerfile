@@ -19,4 +19,4 @@ USER appuser
 
 EXPOSE 8080
 
-CMD ["vod-strm-builder-web", "--host", "0.0.0.0", "--port", "8080", "--work-dir", "/work"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "0", "vod_strm_builder.webapp:create_app()"]
