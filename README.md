@@ -59,6 +59,8 @@ The stack publishes the app on host port `18080` and uses these default host pat
 /mnt/strm/tvshows
 ```
 
+The Portainer stack also adds supplemental group `996`, matching the `/mnt/strm` NAS mount group on the target Docker host.
+
 ## Install
 
 ```bash

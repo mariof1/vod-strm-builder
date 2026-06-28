@@ -9,6 +9,8 @@ services:
     environment:
       VSB_WORK_DIR: /work
       PORT: "8080"
+    group_add:
+      - "996"
     volumes:
       - /opt/vod-strm-builder/work:/work
       - /mnt/strm/movies:/media/movies
