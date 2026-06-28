@@ -104,16 +104,27 @@ class TmdbClient:
         return None
 
     def _get(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
+        auth_params, auth_headers = tmdb_auth(self.config.api_key or "")
         try:
             response = self.session.get(
                 f"{self.BASE_URL}{endpoint}",
-                params={"api_key": self.config.api_key, **params},
+                params={**auth_params, **params},
+                headers=auth_headers or None,
                 timeout=self.timeout,
             )
             response.raise_for_status()
         except requests.RequestException:
             raise RuntimeError(f"TMDB request failed for endpoint {endpoint}") from None
         return response.json()
+
+
+def tmdb_auth(api_key: str) -> tuple[dict[str, str], dict[str, str]]:
+    token = api_key.strip()
+    if token.lower().startswith("bearer "):
+        return {}, {"Authorization": token}
+    if token.startswith("eyJ") or token.count(".") >= 2:
+        return {}, {"Authorization": f"Bearer {token}"}
+    return {"api_key": token}, {}
 
 
 def choose_best_result(kind: str, title: str, year: int | None, rows: list[dict[str, Any]]) -> dict[str, Any] | None:

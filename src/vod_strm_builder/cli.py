@@ -106,7 +106,8 @@ def generate(config_path: str, progress: ProgressCallback | None = None) -> dict
         else:
             movies, series, summary = load_provider_catalog(config, client, progress)
 
-    summary.update(existing_tmdb_stats(movies, series))
+    provider_tmdb_stats = existing_tmdb_stats(movies, series)
+    summary.update(provider_tmdb_stats)
     emit_progress(progress, "Resolving TMDB IDs", 30)
     movies, series, tmdb_stats = enrich_with_tmdb(
         config,
@@ -115,10 +116,35 @@ def generate(config_path: str, progress: ProgressCallback | None = None) -> dict
         progress=count_progress(progress, 30, 55, "Resolving TMDB IDs"),
     )
     summary.update(tmdb_stats)
+    if (
+        config.output.append_tmdb_id
+        and not config.tmdb.enabled
+        and provider_tmdb_stats["movies_with_provider_tmdb_id"] == 0
+        and provider_tmdb_stats["series_with_provider_tmdb_id"] == 0
+    ):
+        summary.setdefault("warnings", []).append(
+            "append_tmdb_id is enabled, but the selected catalog has no TMDB IDs and TMDB lookup fallback is disabled."
+        )
     emit_progress(progress, "Writing movie files", 55)
     summary.update(write_movies(config, client, movies, progress=count_progress(progress, 55, 68, "Writing movie files")))
 
-    if config.series.source == "api":
+    if not series:
+        episodes = []
+        if config.series.source == "api":
+            summary["api_series_parse"] = {"series_checked": 0, "series_failed": 0, "episodes_emitted": 0}
+        elif config.series.source == "m3u":
+            summary["m3u_series_parse"] = {
+                "seen_urls": 0,
+                "parsed_titles": 0,
+                "emitted": 0,
+                "skipped_group": 0,
+                "unmapped": 0,
+                "ambiguous": 0,
+            }
+        else:
+            raise SystemExit(f"Unknown series.source={config.series.source!r}; use 'm3u' or 'api'.")
+        emit_progress(progress, "No selected series to scan", 88)
+    elif config.series.source == "api":
         episodes = []
         series_api_stats = {"series_checked": 0, "series_failed": 0, "episodes_emitted": 0}
         emit_progress(progress, "Fetching series episodes", 68)
