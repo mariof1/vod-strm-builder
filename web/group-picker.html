@@ -897,6 +897,14 @@
       copyCurrent: document.getElementById("copyCurrent"),
     };
 
+    window.addEventListener("error", (event) => {
+      showError(event.error || event.message || "Unexpected browser error");
+    });
+
+    window.addEventListener("unhandledrejection", (event) => {
+      showError(event.reason || "Unexpected browser error");
+    });
+
     for (const element of Object.values(form)) {
       element.addEventListener("input", render);
       element.addEventListener("change", render);
@@ -1338,15 +1346,35 @@
     }
 
     function render() {
-      renderProviders();
-      renderSummary();
-      renderRows();
+      try {
+        renderProviders();
+        renderSummary();
+        renderRows();
+        renderControlsAndOutput();
+      } catch (error) {
+        showError(error);
+        console.error(error);
+      }
+    }
+
+    function renderControlsAndOutput() {
       const running = state.jobStatus && !["complete", "failed", "cancelled"].includes(state.jobStatus.status);
       els.runGenerate.disabled = Boolean(running);
       els.cancelGenerate.disabled = !running;
       els.fetchM3u.disabled = Boolean(running);
       els.syncPlaylists.disabled = Boolean(running);
       els.outputText.value = outputValue(state.activeOutput);
+    }
+
+    function renderSelectionChange() {
+      try {
+        renderSummary();
+        if (state.filter === "selected") renderRows();
+        renderControlsAndOutput();
+      } catch (error) {
+        showError(error);
+        console.error(error);
+      }
     }
 
     function renderSummary() {
@@ -1415,7 +1443,8 @@
       input.addEventListener("change", () => {
         if (input.checked) set.add(group.key);
         else set.delete(group.key);
-        render();
+        label.classList.toggle("on", input.checked);
+        renderSelectionChange();
       });
       label.append(input, document.createTextNode(kind === "movie" ? "M" : "S"));
       return label;
