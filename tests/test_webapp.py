@@ -329,14 +329,17 @@ def test_fetch_and_scan_playlist_handles_byte_lines(tmp_path: Path, monkeypatch)
 def test_xtream_group_summaries_merge_movie_and_series_categories():
     movies = [
         MovieItem("Movie A", "1", "10", "mp4", None, None, None, None, None, None, None),
-        MovieItem("Movie B", "2", "10", "mp4", None, None, None, None, None, None, None),
+        MovieItem("Movie B", "2", "10", "mp4", None, None, None, None, None, None, None, category_ids=("10", "11")),
     ]
     series = [SeriesItem("Show A", "3", "20", None, None, None, None, None, None, None)]
+    live_streams = [{"name": "News", "category_id": "30", "category_ids": ("30",)}]
 
-    groups = xtream_group_summaries({"10": "Films"}, {"20": "Shows"}, movies, series)
+    groups = xtream_group_summaries({"10": "Films", "11": "Featured"}, {"20": "Shows"}, {"30": "Live"}, movies, series, live_streams)
     by_name = {group["name"]: group for group in groups}
 
     assert by_name["Films"]["movie_count"] == 2
+    assert by_name["Featured"]["movie_count"] == 1
     assert by_name["Films"]["series_count"] == 0
     assert by_name["Shows"]["movie_count"] == 0
     assert by_name["Shows"]["series_count"] == 1
+    assert by_name["Live"]["live_count"] == 1

@@ -310,7 +310,17 @@ class AppState:
         series_categories = client.categories("series")
         movies = client.movies()
         series = client.series()
-        return xtream_group_summaries(movie_categories, series_categories, movies, series)
+        live_categories: dict[str, str] = {}
+        live_streams: list[dict[str, object]] = []
+        try:
+            live_categories = client.categories("live")
+        except RuntimeError as exc:
+            LOG.warning("Xtream live categories unavailable: %s", exc)
+        try:
+            live_streams = client.live_streams()
+        except RuntimeError as exc:
+            LOG.warning("Xtream live streams unavailable: %s", exc)
+        return xtream_group_summaries(movie_categories, series_categories, live_categories, movies, series, live_streams)
 
     def write_and_scan_playlist(self, text: str, provider_id: str = "default") -> list[dict[str, object]]:
         self.playlist_cache_for(provider_id).write_text(text, encoding="utf-8")
@@ -766,8 +776,10 @@ def provider_server_url(settings: dict[str, Any]) -> str:
 def xtream_group_summaries(
     movie_categories: dict[str, str],
     series_categories: dict[str, str],
+    live_categories: dict[str, str],
     movies: list[MovieItem],
     series: list[SeriesItem],
+    live_streams: list[dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     groups: dict[str, dict[str, object]] = {}
     samples: dict[str, set[str]] = defaultdict(set)
@@ -786,23 +798,56 @@ def xtream_group_summaries(
         ensure(name or f"Category {category_id}")
     for category_id, name in series_categories.items():
         ensure(name or f"Category {category_id}")
+    for category_id, name in live_categories.items():
+        ensure(name or f"Category {category_id}")
     for item in movies:
-        name = group_name(movie_categories, item.category_id)
-        group = ensure(name)
-        group["movie_count"] = int(group["movie_count"]) + 1
-        if len(samples[name]) < 8:
-            samples[name].add(item.name)
+        for category_id in item_category_ids(item):
+            name = group_name(movie_categories, category_id)
+            group = ensure(name)
+            group["movie_count"] = int(group["movie_count"]) + 1
+            if len(samples[name]) < 8:
+                samples[name].add(item.name)
     for item in series:
-        name = group_name(series_categories, item.category_id)
-        group = ensure(name)
-        group["series_count"] = int(group["series_count"]) + 1
-        if len(samples[name]) < 8:
-            samples[name].add(item.name)
+        for category_id in item_category_ids(item):
+            name = group_name(series_categories, category_id)
+            group = ensure(name)
+            group["series_count"] = int(group["series_count"]) + 1
+            if len(samples[name]) < 8:
+                samples[name].add(item.name)
+    for stream in live_streams or []:
+        for category_id in row_category_ids(stream):
+            name = group_name(live_categories, category_id)
+            group = ensure(name)
+            group["live_count"] = int(group["live_count"]) + 1
+            if len(samples[name]) < 8:
+                samples[name].add(str(stream.get("name") or ""))
 
     for name, group in groups.items():
         group["total"] = int(group["movie_count"]) + int(group["series_count"]) + int(group["live_count"])
         group["samples"] = sorted(samples[name])[:3]
     return sorted(groups.values(), key=lambda group: str(group["name"]).lower())
+
+
+def item_category_ids(item: MovieItem | SeriesItem) -> tuple[str, ...]:
+    values = list(getattr(item, "category_ids", ()) or ())
+    if item.category_id:
+        values.insert(0, item.category_id)
+    return tuple(dict.fromkeys(str(value) for value in values if value))
+
+
+def row_category_ids(row: dict[str, object]) -> tuple[str, ...]:
+    raw = row.get("category_ids")
+    values: list[str] = []
+    if isinstance(raw, (list, tuple)):
+        values.extend(str(value) for value in raw)
+    elif isinstance(raw, str):
+        values.extend(part.strip().strip("'\"") for part in raw.strip().strip("[]").replace("|", ",").split(","))
+    elif raw not in (None, ""):
+        values.append(str(raw))
+    primary = row.get("category_id")
+    if primary:
+        values.insert(0, str(primary))
+    return tuple(dict.fromkeys(value for value in values if value))
 
 
 def build_config(settings: dict[str, Any], groups_path: Path, playlist_cache: Path | None) -> dict[str, Any]:

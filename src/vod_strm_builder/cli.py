@@ -52,8 +52,8 @@ def load_provider_catalog(config, client: XtreamClient, progress: ProgressCallba
     all_movies = client.movies()
     emit_progress(progress, "Loading series catalog", 20)
     all_series = client.series()
-    movies = [item for item in all_movies if str(item.category_id) in movie_ids]
-    series = [item for item in all_series if str(item.category_id) in series_ids]
+    movies = [item for item in all_movies if item_matches_category(item, movie_ids)]
+    series = [item for item in all_series if item_matches_category(item, series_ids)]
     emit_progress(progress, "Catalog loaded", 30)
 
     return movies, series, {
@@ -226,6 +226,15 @@ def count_progress(progress: ProgressCallback | None, start: float, end: float, 
         )
 
     return report
+
+
+def item_matches_category(item: object, category_ids: set[str]) -> bool:
+    ids = getattr(item, "category_ids", None) or ()
+    values = {str(value) for value in ids}
+    primary = getattr(item, "category_id", "")
+    if primary:
+        values.add(str(primary))
+    return bool(values & category_ids)
 
 
 def main() -> None:

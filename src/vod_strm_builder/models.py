@@ -89,6 +89,7 @@ class MovieItem:
     rating: str | None
     cover: str | None
     url: str | None = None
+    category_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,7 @@ class SeriesItem:
     genre: str | None
     rating: str | None
     cover: str | None
+    category_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
