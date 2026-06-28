@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from .models import AppConfig, FilterConfig, OutputConfig, ProviderConfig, SeriesConfig
+from .models import AppConfig, FilterConfig, JellyfinConfig, OutputConfig, ProviderConfig, SeriesConfig, TmdbConfig
 
 
 def _required_env(name: str) -> str:
@@ -40,6 +40,8 @@ def load_config(path: str) -> AppConfig:
     output_raw = raw.get("output") or {}
     filter_raw = raw.get("filters") or {}
     series_raw = raw.get("series") or {}
+    tmdb_raw = raw.get("tmdb") or {}
+    jellyfin_raw = raw.get("jellyfin") or {}
 
     username = provider_raw.get("username") or _required_env(provider_raw.get("username_env", "XTREAM_USERNAME"))
     password = provider_raw.get("password") or _required_env(provider_raw.get("password_env", "XTREAM_PASSWORD"))
@@ -53,7 +55,7 @@ def load_config(path: str) -> AppConfig:
         password=str(password),
         m3u_url=m3u_url,
         m3u_file=Path(provider_raw["m3u_file"]).expanduser() if provider_raw.get("m3u_file") else None,
-        user_agent=str(provider_raw.get("user_agent") or "vod-strm-builder/0.1"),
+        user_agent=str(provider_raw.get("user_agent") or "vod-strm-builder/0.2"),
     )
 
     output = OutputConfig(
@@ -78,10 +80,35 @@ def load_config(path: str) -> AppConfig:
         quality_words=tuple(series_raw.get("quality_words") or ("4k", "uhd", "fhd", "hd")),
     )
 
+    tmdb_api_key_env = str(tmdb_raw.get("api_key_env") or "TMDB_API_KEY")
+    tmdb = TmdbConfig(
+        enabled=bool(tmdb_raw.get("enabled", False)),
+        api_key=tmdb_raw.get("api_key") or os.environ.get(tmdb_api_key_env),
+        api_key_env=tmdb_api_key_env,
+        language=str(tmdb_raw.get("language") or "en-US"),
+        region=tmdb_raw.get("region"),
+        cache_file=Path(tmdb_raw["cache_file"]).expanduser() if tmdb_raw.get("cache_file") else None,
+        lookup_missing_only=bool(tmdb_raw.get("lookup_missing_only", True)),
+        min_score=float(tmdb_raw.get("min_score", 0.58)),
+        fail_on_error=bool(tmdb_raw.get("fail_on_error", False)),
+    )
+
+    jellyfin_api_key_env = str(jellyfin_raw.get("api_key_env") or "JELLYFIN_API_KEY")
+    jellyfin = JellyfinConfig(
+        enabled=bool(jellyfin_raw.get("enabled", False)),
+        server_url=str(jellyfin_raw["server_url"]).rstrip("/") if jellyfin_raw.get("server_url") else None,
+        api_key=jellyfin_raw.get("api_key") or os.environ.get(jellyfin_api_key_env),
+        api_key_env=jellyfin_api_key_env,
+        scan_on_complete=bool(jellyfin_raw.get("scan_on_complete", True)),
+        library_item_ids=tuple(str(item) for item in jellyfin_raw.get("library_item_ids", []) if str(item).strip()),
+    )
+
     return AppConfig(
         provider=provider,
         output=output,
         filters=filters,
         series=series,
         catalog_file=Path(raw["catalog_file"]).expanduser() if raw.get("catalog_file") else None,
+        tmdb=tmdb,
+        jellyfin=jellyfin,
     )

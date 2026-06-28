@@ -11,7 +11,7 @@ class ProviderConfig:
     password: str
     m3u_url: str | None = None
     m3u_file: Path | None = None
-    user_agent: str = "vod-strm-builder/0.1"
+    user_agent: str = "vod-strm-builder/0.2"
 
 
 @dataclass(frozen=True)
@@ -40,12 +40,37 @@ class SeriesConfig:
 
 
 @dataclass(frozen=True)
+class TmdbConfig:
+    enabled: bool = False
+    api_key: str | None = None
+    api_key_env: str = "TMDB_API_KEY"
+    language: str = "en-US"
+    region: str | None = None
+    cache_file: Path | None = None
+    lookup_missing_only: bool = True
+    min_score: float = 0.58
+    fail_on_error: bool = False
+
+
+@dataclass(frozen=True)
+class JellyfinConfig:
+    enabled: bool = False
+    server_url: str | None = None
+    api_key: str | None = None
+    api_key_env: str = "JELLYFIN_API_KEY"
+    scan_on_complete: bool = True
+    library_item_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class AppConfig:
     provider: ProviderConfig
     output: OutputConfig
     filters: FilterConfig
     series: SeriesConfig = field(default_factory=SeriesConfig)
     catalog_file: Path | None = None
+    tmdb: TmdbConfig = field(default_factory=TmdbConfig)
+    jellyfin: JellyfinConfig = field(default_factory=JellyfinConfig)
 
 
 @dataclass(frozen=True)
@@ -56,6 +81,7 @@ class MovieItem:
     extension: str
     year: int | None
     tmdb_id: str | None
+    imdb_id: str | None
     plot: str | None
     genre: str | None
     rating: str | None
@@ -69,6 +95,7 @@ class SeriesItem:
     category_id: str
     year: int | None
     tmdb_id: str | None
+    imdb_id: str | None
     plot: str | None
     genre: str | None
     rating: str | None

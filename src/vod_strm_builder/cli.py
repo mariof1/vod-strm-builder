@@ -6,7 +6,9 @@ from pathlib import Path
 
 from .catalog import load_catalog
 from .config import load_config
+from .jellyfin import notify_jellyfin
 from .m3u import parse_series_episodes
+from .tmdb import enrich_with_tmdb
 from .writer import write_movies, write_series
 from .xtream import XtreamClient
 
@@ -52,6 +54,8 @@ def generate(config_path: str) -> dict[str, object]:
             "series_selected": len(series),
         }
 
+    movies, series, tmdb_stats = enrich_with_tmdb(config, movies, series)
+    summary.update(tmdb_stats)
     summary.update(write_movies(config, client, movies))
 
     if config.series.source != "m3u":
@@ -66,6 +70,7 @@ def generate(config_path: str) -> dict[str, object]:
     )
     summary["m3u_series_parse"] = stats._asdict()
     summary.update(write_series(config, episodes))
+    summary.update(notify_jellyfin(config.jellyfin, config.output.dry_run))
     return summary
 
 

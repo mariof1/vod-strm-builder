@@ -29,8 +29,8 @@ class XtreamClient:
                 timeout=self.timeout,
             )
             response.raise_for_status()
-        except requests.RequestException as exc:
-            raise RuntimeError(f"Xtream player_api action '{action}' failed for configured server") from exc
+        except requests.RequestException:
+            raise RuntimeError(f"Xtream player_api action '{action}' failed for configured server") from None
         return response.json()
 
     def categories(self, kind: str) -> dict[str, str]:
@@ -56,6 +56,7 @@ class XtreamClient:
                     extension=ext,
                     year=extract_year(name, row.get("releaseDate"), row.get("release_date"), row.get("year")),
                     tmdb_id=tmdb_id,
+                    imdb_id=_clean_id(row.get("imdb") or row.get("imdb_id")),
                     plot=_string_or_none(row.get("plot")),
                     genre=_string_or_none(row.get("genre")),
                     rating=_string_or_none(row.get("rating")),
@@ -80,6 +81,7 @@ class XtreamClient:
                     category_id=str(row.get("category_id") or ""),
                     year=extract_year(name, row.get("releaseDate"), row.get("release_date"), row.get("year")),
                     tmdb_id=tmdb_id,
+                    imdb_id=_clean_id(row.get("imdb") or row.get("imdb_id")),
                     plot=_string_or_none(row.get("plot")),
                     genre=_string_or_none(row.get("genre")),
                     rating=_string_or_none(row.get("rating")),

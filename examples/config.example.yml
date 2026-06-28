@@ -7,7 +7,7 @@ provider:
   # m3u_url_env: "XTREAM_M3U_URL"
   # Optional local cache instead of URL:
   # m3u_file: "/srv/cache/provider.m3u"
-  user_agent: "vod-strm-builder/0.1"
+  user_agent: "vod-strm-builder/0.2"
 
 selected_groups_file: "selected-groups.dispatcharr.json"
 # Optional: a one-time Dispatcharr metadata export. When set, the tool skips
@@ -33,3 +33,19 @@ series:
   source: "m3u"
   require_selected_m3u_group: true
   quality_words: ["4k", "uhd", "fhd", "hd"]
+
+tmdb:
+  enabled: true
+  api_key_env: "TMDB_API_KEY"
+  language: "en-US"
+  cache_file: ".tmdb-cache.json"
+  lookup_missing_only: true
+  min_score: 0.58
+  fail_on_error: false
+
+jellyfin:
+  enabled: false
+  server_url: "http://jellyfin.example.com:8096"
+  api_key_env: "JELLYFIN_API_KEY"
+  scan_on_complete: true
+  library_item_ids: []

@@ -31,6 +31,9 @@ Set credentials in environment variables rather than in the config file:
 ```bash
 export XTREAM_USERNAME="your_username"
 export XTREAM_PASSWORD="your_password"
+export TMDB_API_KEY="your_tmdb_v3_key"
+# Optional, only when jellyfin.enabled=true:
+export JELLYFIN_API_KEY="your_jellyfin_api_key"
 ```
 
 Then edit `config.yml`:
@@ -54,6 +57,19 @@ output:
 series:
   source: "m3u"
   require_selected_m3u_group: true
+
+tmdb:
+  enabled: true
+  api_key_env: "TMDB_API_KEY"
+  cache_file: ".tmdb-cache.json"
+  lookup_missing_only: true
+  fail_on_error: false
+
+jellyfin:
+  enabled: false
+  server_url: "http://jellyfin.example.com:8096"
+  api_key_env: "JELLYFIN_API_KEY"
+  scan_on_complete: true
 ```
 
 ## Export Selected Dispatcharr Groups
@@ -89,6 +105,28 @@ vod-strm-builder generate --config config.yml --summary-json last-run.json
 Use `dry_run: true` first if you want a summary without writing files.
 
 Use `clean: true` only when the output paths are dedicated to generated STRM/NFO files. It removes the existing output tree before rebuilding it.
+
+## TMDB Lookup
+
+When `tmdb.enabled` is true, the generator fills missing TMDB IDs before writing folders. It uses:
+
+- `/find/{imdb_id}` when the catalogue has an IMDb ID
+- `/search/movie` or `/search/tv` using title and year otherwise
+
+The TMDB key is read from `TMDB_API_KEY` by default. It is never stored in generated `.strm` or `.nfo` files.
+
+`lookup_missing_only: true` keeps existing exported TMDB IDs and only calls TMDB for missing ones. Use `cache_file: ".tmdb-cache.json"` to avoid repeating lookups on later runs.
+
+`fail_on_error: false` keeps generation running if TMDB is unavailable or the key is rejected; the summary will report `tmdb_errors`.
+
+## Jellyfin Scan
+
+When `jellyfin.enabled` is true, the generator calls Jellyfin after files are written:
+
+- if `library_item_ids` is empty, it posts to `/Library/Refresh`
+- if `library_item_ids` is set, it refreshes those items recursively
+
+The Jellyfin API token is read from `JELLYFIN_API_KEY` by default. Dry runs skip the Jellyfin call.
 
 ## Notes
 
