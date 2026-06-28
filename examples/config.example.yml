@@ -7,7 +7,7 @@ provider:
   # m3u_url_env: "XTREAM_M3U_URL"
   # Optional local cache instead of URL:
   # m3u_file: "/srv/cache/provider.m3u"
-  user_agent: "vod-strm-builder/0.2"
+  user_agent: "TiviMate/5.1.6 (Android 12)"
 
 selected_groups_file: "selected-groups.json"
 # Optional: a prebuilt metadata catalog. When set, the tool skips player_api
@@ -30,6 +30,8 @@ filters:
   series_category_ids: []
 
 series:
+  # Use "api" when the provider blocks /get.php but player_api.php works.
+  # API mode fetches episodes with get_series_info calls for selected series.
   source: "m3u"
   require_selected_m3u_group: true
   quality_words: ["4k", "uhd", "fhd", "hd"]

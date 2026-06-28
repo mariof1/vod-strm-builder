@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 import requests
 
-from .models import MovieItem, ProviderConfig, SeriesItem
+from .models import EpisodeItem, MovieItem, ProviderConfig, SeriesItem
 from .utils import clean_title, extract_year
 
 
@@ -16,22 +16,27 @@ class XtreamClient:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": provider.user_agent})
 
-    def player_api(self, action: str) -> Any:
+    def player_api(self, action: str, **extra_params: object) -> Any:
         url = f"{self.provider.server_url}/player_api.php"
+        params = {
+            "username": self.provider.username,
+            "password": self.provider.password,
+            "action": action,
+        }
+        params.update({key: value for key, value in extra_params.items() if value is not None})
         try:
             response = self.session.get(
                 url,
-                params={
-                    "username": self.provider.username,
-                    "password": self.provider.password,
-                    "action": action,
-                },
+                params=params,
                 timeout=self.timeout,
             )
             response.raise_for_status()
         except requests.RequestException:
             raise RuntimeError(f"Xtream player_api action '{action}' failed for configured server") from None
-        return response.json()
+        try:
+            return response.json()
+        except ValueError:
+            raise RuntimeError(f"Xtream player_api action '{action}' returned a non-JSON response") from None
 
     def categories(self, kind: str) -> dict[str, str]:
         action = "get_vod_categories" if kind == "movie" else "get_series_categories"
@@ -97,6 +102,51 @@ class XtreamClient:
             f"{quote(item.stream_id)}.{item.extension or 'mp4'}"
         )
 
+    def series_episode_url(self, stream_id: str, extension: str) -> str:
+        return (
+            f"{self.provider.server_url}/series/"
+            f"{quote(self.provider.username)}/{quote(self.provider.password)}/"
+            f"{quote(stream_id)}.{extension or 'mp4'}"
+        )
+
+    def series_episodes(self, item: SeriesItem) -> list[EpisodeItem]:
+        payload = self.player_api("get_series_info", series_id=item.series_id) or {}
+        episodes = payload.get("episodes") if isinstance(payload, dict) else {}
+        if not isinstance(episodes, dict):
+            return []
+
+        items: list[EpisodeItem] = []
+        for season_key, rows in episodes.items():
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                stream_id = str(row.get("id") or row.get("stream_id") or "").strip()
+                if not stream_id:
+                    continue
+                season = _int_or_none(row.get("season") or season_key)
+                episode = _int_or_none(row.get("episode_num") or row.get("episode") or row.get("num"))
+                if season is None or episode is None:
+                    continue
+                title = str(row.get("title") or "").strip() or f"Episode {episode:02d}"
+                extension = str(row.get("container_extension") or "mp4").lstrip(".")
+                info = row.get("info") if isinstance(row.get("info"), dict) else {}
+                logo = _string_or_none(info.get("movie_image") or row.get("cover")) if isinstance(info, dict) else None
+                items.append(
+                    EpisodeItem(
+                        series=item,
+                        season=season,
+                        episode=episode,
+                        title=title,
+                        stream_id=stream_id,
+                        extension=extension,
+                        url=self.series_episode_url(stream_id, extension),
+                        logo=logo,
+                    )
+                )
+        return items
+
     def m3u_source(self) -> str:
         if self.provider.m3u_file:
             return str(self.provider.m3u_file)
@@ -122,3 +172,10 @@ def _string_or_none(value: object) -> str | None:
     if isinstance(value, list):
         return ", ".join(str(item) for item in value if item)
     return str(value)
+
+
+def _int_or_none(value: object) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None

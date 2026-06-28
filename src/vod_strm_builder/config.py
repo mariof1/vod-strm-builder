@@ -7,7 +7,16 @@ from typing import Any
 
 import yaml
 
-from .models import AppConfig, FilterConfig, JellyfinConfig, OutputConfig, ProviderConfig, SeriesConfig, TmdbConfig
+from .models import (
+    DEFAULT_USER_AGENT,
+    AppConfig,
+    FilterConfig,
+    JellyfinConfig,
+    OutputConfig,
+    ProviderConfig,
+    SeriesConfig,
+    TmdbConfig,
+)
 
 
 def _required_env(name: str) -> str:
@@ -55,7 +64,7 @@ def load_config(path: str) -> AppConfig:
         password=str(password),
         m3u_url=m3u_url,
         m3u_file=Path(provider_raw["m3u_file"]).expanduser() if provider_raw.get("m3u_file") else None,
-        user_agent=str(provider_raw.get("user_agent") or "vod-strm-builder/0.2"),
+        user_agent=str(provider_raw.get("user_agent") or DEFAULT_USER_AGENT),
     )
 
     output = OutputConfig(

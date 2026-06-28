@@ -66,17 +66,31 @@ def generate(config_path: str) -> dict[str, object]:
     summary.update(tmdb_stats)
     summary.update(write_movies(config, client, movies))
 
-    if config.series.source != "m3u":
-        raise SystemExit("Only series.source=m3u is implemented; this avoids per-series player_api calls.")
-    episodes, stats = parse_series_episodes(
-        client.m3u_source(),
-        series,
-        config.filters.series_groups,
-        config.provider.user_agent,
-        config.series.require_selected_m3u_group,
-        config.series.quality_words,
-    )
-    summary["m3u_series_parse"] = stats._asdict()
+    if config.series.source == "api":
+        episodes = []
+        series_api_stats = {"series_checked": 0, "series_failed": 0, "episodes_emitted": 0}
+        for item in series:
+            series_api_stats["series_checked"] += 1
+            try:
+                item_episodes = client.series_episodes(item)
+            except RuntimeError:
+                series_api_stats["series_failed"] += 1
+                continue
+            episodes.extend(item_episodes)
+            series_api_stats["episodes_emitted"] += len(item_episodes)
+        summary["api_series_parse"] = series_api_stats
+    elif config.series.source == "m3u":
+        episodes, stats = parse_series_episodes(
+            client.m3u_source(),
+            series,
+            config.filters.series_groups,
+            config.provider.user_agent,
+            config.series.require_selected_m3u_group,
+            config.series.quality_words,
+        )
+        summary["m3u_series_parse"] = stats._asdict()
+    else:
+        raise SystemExit(f"Unknown series.source={config.series.source!r}; use 'm3u' or 'api'.")
     summary.update(write_series(config, episodes))
     summary.update(notify_jellyfin(config.jellyfin, config.output.dry_run))
     return summary

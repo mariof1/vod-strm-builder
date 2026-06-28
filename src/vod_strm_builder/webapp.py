@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
 import json
 import os
 import subprocess
@@ -10,13 +11,15 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import requests
 import yaml
 from flask import Flask, Response, jsonify, request, send_file
 
 from .m3u import scan_m3u_groups
+from .models import DEFAULT_USER_AGENT, MovieItem, ProviderConfig, SeriesItem
+from .xtream import XtreamClient
 
 
 TERMINAL_STATES = {"complete", "failed", "cancelled"}
@@ -41,8 +44,22 @@ def create_app(work_dir: Path | None = None) -> Flask:
             url = payload.get("m3u_url") or build_m3u_url(payload)
             if not url:
                 raise ValueError("Provider URL, username, and password are required.")
-            groups = state.fetch_and_scan_playlist(url, str(payload.get("user_agent") or "vod-strm-builder/0.2"))
-            return jsonify(group_response(groups, playlist_cached=True))
+            try:
+                groups = state.fetch_and_scan_playlist(url, str(payload.get("user_agent") or DEFAULT_USER_AGENT))
+                return jsonify(group_response(groups, playlist_cached=True, source="m3u"))
+            except Exception as playlist_exc:
+                try:
+                    groups = state.fetch_xtream_groups(payload)
+                    return jsonify(
+                        group_response(
+                            groups,
+                            playlist_cached=False,
+                            source="xtream_api",
+                            warning=str(playlist_exc),
+                        )
+                    )
+                except Exception:
+                    raise playlist_exc
         except Exception as exc:
             return json_error(exc)
 
@@ -54,7 +71,7 @@ def create_app(work_dir: Path | None = None) -> Flask:
             if not text.strip():
                 raise ValueError("Playlist text is empty.")
             groups = state.write_and_scan_playlist(text)
-            return jsonify(group_response(groups, playlist_cached=True))
+            return jsonify(group_response(groups, playlist_cached=True, source="m3u"))
         except Exception as exc:
             return json_error(exc)
 
@@ -66,7 +83,7 @@ def create_app(work_dir: Path | None = None) -> Flask:
                 raise ValueError("No playlist file was uploaded.")
             upload.save(state.playlist_cache)
             groups = state.scan_cached_playlist()
-            return jsonify(group_response(groups, playlist_cached=True))
+            return jsonify(group_response(groups, playlist_cached=True, source="m3u"))
         except Exception as exc:
             return json_error(exc)
 
@@ -130,6 +147,14 @@ class AppState:
                     return [group.to_dict() for group in scan_m3u_groups(lines())]
         except requests.RequestException as exc:
             raise RuntimeError(describe_playlist_fetch_error(exc)) from None
+
+    def fetch_xtream_groups(self, settings: dict[str, Any]) -> list[dict[str, object]]:
+        client = XtreamClient(provider_from_settings(settings), timeout=120)
+        movie_categories = client.categories("movie")
+        series_categories = client.categories("series")
+        movies = client.movies()
+        series = client.series()
+        return xtream_group_summaries(movie_categories, series_categories, movies, series)
 
     def write_and_scan_playlist(self, text: str) -> list[dict[str, object]]:
         self.playlist_cache.write_text(text, encoding="utf-8")
@@ -278,13 +303,19 @@ def frontend_path() -> Path:
     return path
 
 
-def group_response(groups: list[dict[str, object]], playlist_cached: bool) -> dict[str, object]:
+def group_response(
+    groups: list[dict[str, object]],
+    playlist_cached: bool,
+    source: str = "m3u",
+    warning: str | None = None,
+) -> dict[str, object]:
     movie_total = sum(int(group["movie_count"]) for group in groups)
     series_total = sum(int(group["series_count"]) for group in groups)
     live_total = sum(int(group["live_count"]) for group in groups)
-    return {
+    payload: dict[str, object] = {
         "groups": groups,
         "playlist_cached": playlist_cached,
+        "source": source,
         "stats": {
             "groups": len(groups),
             "movie_entries": movie_total,
@@ -292,14 +323,84 @@ def group_response(groups: list[dict[str, object]], playlist_cached: bool) -> di
             "live_entries": live_total,
         },
     }
+    if warning:
+        payload["warning"] = warning
+    return payload
+
+
+def provider_from_settings(settings: dict[str, Any]) -> ProviderConfig:
+    server_url = provider_server_url(settings)
+    username = clean_string(settings.get("username"))
+    password = clean_string(settings.get("password"))
+    if not server_url or not username or not password:
+        raise ValueError("Provider server URL, username, and password are required for Xtream API fallback.")
+    return ProviderConfig(
+        server_url=server_url,
+        username=username,
+        password=password,
+        user_agent=clean_string(settings.get("user_agent")) or DEFAULT_USER_AGENT,
+    )
+
+
+def provider_server_url(settings: dict[str, Any]) -> str:
+    server_url = clean_string(settings.get("server_url")).rstrip("/")
+    if server_url:
+        return server_url
+    m3u_url = clean_string(settings.get("m3u_url"))
+    parsed = urlparse(m3u_url)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    return ""
+
+
+def xtream_group_summaries(
+    movie_categories: dict[str, str],
+    series_categories: dict[str, str],
+    movies: list[MovieItem],
+    series: list[SeriesItem],
+) -> list[dict[str, object]]:
+    groups: dict[str, dict[str, object]] = {}
+    samples: dict[str, set[str]] = defaultdict(set)
+
+    def group_name(categories: dict[str, str], category_id: str) -> str:
+        return (categories.get(str(category_id)) or f"Category {category_id or 'unknown'}").strip()
+
+    def ensure(name: str) -> dict[str, object]:
+        key = name or "Ungrouped"
+        return groups.setdefault(
+            key,
+            {"name": key, "movie_count": 0, "series_count": 0, "live_count": 0},
+        )
+
+    for category_id, name in movie_categories.items():
+        ensure(name or f"Category {category_id}")
+    for category_id, name in series_categories.items():
+        ensure(name or f"Category {category_id}")
+    for item in movies:
+        name = group_name(movie_categories, item.category_id)
+        group = ensure(name)
+        group["movie_count"] = int(group["movie_count"]) + 1
+        if len(samples[name]) < 8:
+            samples[name].add(item.name)
+    for item in series:
+        name = group_name(series_categories, item.category_id)
+        group = ensure(name)
+        group["series_count"] = int(group["series_count"]) + 1
+        if len(samples[name]) < 8:
+            samples[name].add(item.name)
+
+    for name, group in groups.items():
+        group["total"] = int(group["movie_count"]) + int(group["series_count"]) + int(group["live_count"])
+        group["samples"] = sorted(samples[name])[:3]
+    return sorted(groups.values(), key=lambda group: str(group["name"]).lower())
 
 
 def build_config(settings: dict[str, Any], groups_path: Path, playlist_cache: Path | None) -> dict[str, Any]:
     provider: dict[str, Any] = {
-        "server_url": clean_string(settings.get("server_url")).rstrip("/"),
+        "server_url": provider_server_url(settings),
         "username_env": "XTREAM_USERNAME",
         "password_env": "XTREAM_PASSWORD",
-        "user_agent": clean_string(settings.get("user_agent")) or "vod-strm-builder/0.2",
+        "user_agent": clean_string(settings.get("user_agent")) or DEFAULT_USER_AGENT,
     }
     if playlist_cache is not None:
         provider["m3u_file"] = str(playlist_cache)
@@ -324,7 +425,7 @@ def build_config(settings: dict[str, Any], groups_path: Path, playlist_cache: Pa
             "series_category_ids": [],
         },
         "series": {
-            "source": "m3u",
+            "source": clean_string(settings.get("series_source")) or "m3u",
             "require_selected_m3u_group": as_bool(settings.get("require_selected_group")),
             "quality_words": string_list(settings.get("quality_words")),
         },
@@ -372,13 +473,14 @@ def job_environment(settings: dict[str, Any]) -> dict[str, str]:
 
 def validate_generate_settings(settings: dict[str, Any]) -> None:
     required = {
-        "server_url": "Provider server URL",
         "username": "Provider username",
         "password": "Provider password",
         "movies_dir": "Movies directory",
         "series_dir": "TV directory",
     }
     missing = [label for key, label in required.items() if not clean_string(settings.get(key))]
+    if not provider_server_url(settings):
+        missing.insert(0, "Provider server URL")
     if missing:
         raise ValueError("Missing required settings: " + ", ".join(missing))
     if as_bool(settings.get("jellyfin_enabled")) and not clean_string(settings.get("jellyfin_key")):

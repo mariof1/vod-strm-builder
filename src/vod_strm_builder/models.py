@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+DEFAULT_USER_AGENT = "TiviMate/5.1.6 (Android 12)"
+
 
 @dataclass(frozen=True)
 class ProviderConfig:
@@ -11,7 +13,7 @@ class ProviderConfig:
     password: str
     m3u_url: str | None = None
     m3u_file: Path | None = None
-    user_agent: str = "vod-strm-builder/0.2"
+    user_agent: str = DEFAULT_USER_AGENT
 
 
 @dataclass(frozen=True)

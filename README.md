@@ -95,6 +95,7 @@ provider:
   server_url: "http://provider.example.com"
   username_env: "XTREAM_USERNAME"
   password_env: "XTREAM_PASSWORD"
+  user_agent: "TiviMate/5.1.6 (Android 12)"
 
 selected_groups_file: "selected-groups.json"
 
@@ -107,6 +108,7 @@ output:
   dry_run: false
 
 series:
+  # Use "api" when /get.php playlists are blocked but player_api.php works.
   source: "m3u"
   require_selected_m3u_group: true
 

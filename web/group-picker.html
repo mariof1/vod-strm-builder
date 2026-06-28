@@ -481,7 +481,7 @@
             <input id="m3uUrl" type="url" placeholder="optional">
           </label>
           <label>User Agent
-            <input id="userAgent" type="text" value="vod-strm-builder/0.2">
+            <input id="userAgent" type="text" value="TiviMate/5.1.6 (Android 12)">
           </label>
           <label class="check-row">
             <input id="inlineSecrets" type="checkbox">
@@ -648,6 +648,7 @@
       jobLog: "",
       jobStatus: null,
       pollTimer: null,
+      groupSource: "m3u",
     };
 
     const ids = [
@@ -863,7 +864,8 @@
         username: form.username.value,
         password: form.password.value,
         m3u_url: form.m3uUrl.value.trim(),
-        user_agent: form.userAgent.value.trim() || "vod-strm-builder/0.2",
+        user_agent: form.userAgent.value.trim() || "TiviMate/5.1.6 (Android 12)",
+        series_source: state.groupSource === "xtream_api" ? "api" : "m3u",
         movies_dir: form.moviesDir.value.trim(),
         series_dir: form.seriesDir.value.trim(),
         catalog_file: form.catalogFile.value.trim(),
@@ -931,11 +933,13 @@
       }));
       state.selectedMovies = new Set();
       state.selectedSeries = new Set();
+      state.groupSource = data.source || "m3u";
       state.search = "";
       els.searchInput.value = "";
       const stats = data.stats || {};
-      const suffix = data.playlist_cached ? "cached for generation" : "parsed";
-      setStatus(`${sourceName}: ${(stats.groups || state.groups.length).toLocaleString()} groups, ${suffix}`);
+      const label = state.groupSource === "xtream_api" ? "Xtream API" : sourceName;
+      const suffix = data.playlist_cached ? "cached for generation" : "ready";
+      setStatus(`${label}: ${(stats.groups || state.groups.length).toLocaleString()} groups, ${suffix}`);
       render();
     }
 
@@ -1059,7 +1063,7 @@
         if (inline) lines.push(`  m3u_url: ${yamlString(form.m3uUrl.value.trim())}`);
         else lines.push('  m3u_url_env: "XTREAM_M3U_URL"');
       }
-      lines.push(`  user_agent: ${yamlString(form.userAgent.value.trim() || "vod-strm-builder/0.2")}`);
+      lines.push(`  user_agent: ${yamlString(form.userAgent.value.trim() || "TiviMate/5.1.6 (Android 12)")}`);
       lines.push("");
       lines.push(`selected_groups_file: ${yamlString(form.groupsFile.value.trim() || "selected-groups.json")}`);
       if (form.catalogFile.value.trim()) lines.push(`catalog_file: ${yamlString(form.catalogFile.value.trim())}`);
@@ -1079,7 +1083,7 @@
       lines.push("  series_category_ids: []");
       lines.push("");
       lines.push("series:");
-      lines.push('  source: "m3u"');
+      lines.push(`  source: ${yamlString(state.groupSource === "xtream_api" ? "api" : "m3u")}`);
       lines.push(`  require_selected_m3u_group: ${bool(form.requireSelectedGroup.checked)}`);
       lines.push(`  quality_words: [${csv(form.qualityWords.value).map(yamlString).join(", ")}]`);
       lines.push("");
