@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+config.yml
+config.yaml
+selected-groups*.json
+selected-catalog*.json
+dry-run-summary*.json
+!examples/selected-groups.example.json
+*.log

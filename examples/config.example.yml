@@ -1,0 +1,35 @@
+provider:
+  server_url: "http://provider.example.com"
+  username_env: "XTREAM_USERNAME"
+  password_env: "XTREAM_PASSWORD"
+  # Optional override. If omitted, the tool builds:
+  # /get.php?username=...&password=...&type=m3u_plus&output=ts
+  # m3u_url_env: "XTREAM_M3U_URL"
+  # Optional local cache instead of URL:
+  # m3u_file: "/srv/cache/provider.m3u"
+  user_agent: "vod-strm-builder/0.1"
+
+selected_groups_file: "selected-groups.dispatcharr.json"
+# Optional: a one-time Dispatcharr metadata export. When set, the tool skips
+# player_api catalogue calls and uses this file for movie/series TMDB metadata.
+# catalog_file: "selected-catalog.dispatcharr.json"
+
+output:
+  movies_dir: "/mnt/nas/strm/movies"
+  series_dir: "/mnt/nas/strm/tvshows"
+  append_tmdb_id: true
+  generate_nfo: true
+  clean: false
+  dry_run: true
+
+filters:
+  # You can define groups directly here, or put them in selected_groups_file.
+  movie_groups: []
+  series_groups: []
+  movie_category_ids: []
+  series_category_ids: []
+
+series:
+  source: "m3u"
+  require_selected_m3u_group: true
+  quality_words: ["4k", "uhd", "fhd", "hd"]
