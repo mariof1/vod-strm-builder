@@ -4,6 +4,7 @@ import requests
 
 from vod_strm_builder.models import DEFAULT_USER_AGENT, MovieItem, SeriesItem
 from vod_strm_builder.webapp import (
+    AppState,
     build_config,
     create_app,
     describe_playlist_fetch_error,
@@ -81,6 +82,31 @@ def test_fetch_playlist_bad_json_returns_json_error(tmp_path: Path):
 
     assert response.status_code == 400
     assert response.get_json() == {"error": "Provider URL, username, and password are required."}
+
+
+def test_fetch_and_scan_playlist_handles_byte_lines(tmp_path: Path, monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def raise_for_status(self):
+            return None
+
+        def iter_lines(self, decode_unicode=True):
+            yield b'#EXTINF:-1 group-title="Movies" tvg-name="Film",Film'
+            yield b"http://example.test/movie/user/pass/1.mp4"
+
+    monkeypatch.setattr("vod_strm_builder.webapp.requests.get", lambda *args, **kwargs: FakeResponse())
+    state = AppState(tmp_path)
+
+    groups = state.fetch_and_scan_playlist("http://provider.example.com/get.php", DEFAULT_USER_AGENT)
+
+    assert groups[0]["name"] == "Movies"
+    assert groups[0]["movie_count"] == 1
+    assert state.playlist_cache.read_text(encoding="utf-8").startswith("#EXTINF")
 
 
 def test_xtream_group_summaries_merge_movie_and_series_categories():

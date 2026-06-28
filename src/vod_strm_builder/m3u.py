@@ -142,13 +142,21 @@ def _parse_episode_title(title: str) -> tuple[str, int, int, str] | None:
 def _iter_http_lines(url: str, user_agent: str):
     with requests.get(url, stream=True, timeout=(20, 180), headers={"User-Agent": user_agent}) as response:
         response.raise_for_status()
-        yield from (line or "" for line in response.iter_lines(decode_unicode=True))
+        yield from (decode_m3u_line(line) for line in response.iter_lines(decode_unicode=True))
 
 
 def _iter_file_lines(path: str):
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for line in fh:
             yield line.rstrip("\n")
+
+
+def decode_m3u_line(line: object) -> str:
+    if line is None:
+        return ""
+    if isinstance(line, bytes):
+        return line.decode("utf-8", errors="replace")
+    return str(line)
 
 
 def _consume_series_line(

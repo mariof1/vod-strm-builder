@@ -17,7 +17,7 @@ import requests
 import yaml
 from flask import Flask, Response, jsonify, request, send_file
 
-from .m3u import scan_m3u_groups
+from .m3u import decode_m3u_line, scan_m3u_groups
 from .models import DEFAULT_USER_AGENT, MovieItem, ProviderConfig, SeriesItem
 from .xtream import XtreamClient
 
@@ -140,7 +140,7 @@ class AppState:
 
                     def lines():
                         for line in response.iter_lines(decode_unicode=True):
-                            text = line or ""
+                            text = decode_m3u_line(line)
                             fh.write(text + "\n")
                             yield text
 
