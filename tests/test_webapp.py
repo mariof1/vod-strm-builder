@@ -9,6 +9,8 @@ from vod_strm_builder.webapp import (
     create_app,
     describe_playlist_fetch_error,
     job_environment,
+    selected_groups_by_provider,
+    settings_providers,
     xtream_group_summaries,
 )
 
@@ -82,6 +84,58 @@ def test_fetch_playlist_bad_json_returns_json_error(tmp_path: Path):
 
     assert response.status_code == 400
     assert response.get_json() == {"error": "Provider URL, username, and password are required."}
+
+
+def test_settings_api_persists_to_work_dir(tmp_path: Path):
+    app = create_app(tmp_path)
+    payload = {
+        "settings": {
+            "providers": [
+                {
+                    "id": "main",
+                    "name": "Main",
+                    "server_url": "http://provider.example.com",
+                    "username": "user",
+                    "password": "secret",
+                }
+            ],
+            "movies_dir": "/media/movies",
+        },
+        "selected_groups": {"providers": {"main": {"movie_groups": ["Movies"]}}},
+    }
+
+    save_response = app.test_client().post("/api/settings", json=payload)
+    load_response = app.test_client().get("/api/settings")
+
+    assert save_response.status_code == 200
+    assert load_response.get_json() == payload
+    assert (tmp_path / "web-settings.json").exists()
+
+
+def test_multi_provider_selection_is_split_by_provider():
+    providers = settings_providers(
+        {
+            "providers": [
+                {"id": "one", "name": "One", "server_url": "http://one.example", "username": "u", "password": "p"},
+                {"id": "two", "name": "Two", "server_url": "http://two.example", "username": "u", "password": "p"},
+            ]
+        }
+    )
+
+    selected = selected_groups_by_provider(
+        {
+            "providers": {
+                "one": {"movie_groups": ["Movies"]},
+                "two": {"series_groups": ["Series"]},
+            }
+        },
+        providers,
+    )
+
+    assert selected["one"]["movie_groups"] == ["Movies"]
+    assert selected["one"]["series_groups"] == []
+    assert selected["two"]["movie_groups"] == []
+    assert selected["two"]["series_groups"] == ["Series"]
 
 
 def test_fetch_and_scan_playlist_handles_byte_lines(tmp_path: Path, monkeypatch):

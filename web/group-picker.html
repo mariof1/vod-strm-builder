@@ -127,6 +127,14 @@
       align-items: center;
     }
 
+    .header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      min-width: 0;
+    }
+
     h1,
     h2 {
       margin: 0;
@@ -141,7 +149,7 @@
       color: var(--muted);
       font-size: 13px;
       text-align: right;
-      max-width: 58vw;
+      max-width: 42vw;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -209,6 +217,40 @@
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
+    }
+
+    .provider-list {
+      display: grid;
+      gap: 6px;
+    }
+
+    .provider-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      width: 100%;
+      min-height: 38px;
+      text-align: left;
+      border-color: #29303a;
+      background: #14171c;
+    }
+
+    .provider-item.active {
+      border-color: var(--blue);
+      background: rgba(90, 167, 255, 0.16);
+    }
+
+    .provider-item span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .provider-item small {
+      color: var(--muted);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
     }
 
     .check-row {
@@ -404,11 +446,16 @@
 
     tr:hover td { background: rgba(255, 255, 255, 0.025); }
 
+    .provider-name,
     .group-name,
     .sample {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .provider-name {
+      color: var(--muted);
     }
 
     .group-name {
@@ -570,6 +617,11 @@
         display: grid;
         align-items: start;
       }
+      .header-actions {
+        justify-content: flex-start;
+        display: grid;
+        grid-template-columns: 1fr;
+      }
       .status { text-align: left; }
     }
   </style>
@@ -578,13 +630,25 @@
   <div class="app">
     <header>
       <h1>VOD STRM Builder</h1>
-      <div class="status" id="status">Ready</div>
+      <div class="header-actions">
+        <button id="saveSettings" type="button">Save Settings</button>
+        <div class="status" id="status">Ready</div>
+      </div>
     </header>
 
     <main>
       <aside class="left">
         <section class="section">
-          <h2>Provider</h2>
+          <h2>Providers</h2>
+          <div class="provider-list" id="providerList"></div>
+          <div class="toolbar">
+            <button id="addProvider" type="button">Add</button>
+            <button id="duplicateProvider" type="button">Duplicate</button>
+            <button id="removeProvider" type="button">Remove</button>
+          </div>
+          <label>Name
+            <input id="providerName" type="text" value="Provider 1">
+          </label>
           <label>Server URL
             <input id="serverUrl" type="url" placeholder="http://provider.example.com">
           </label>
@@ -732,7 +796,8 @@
             <table>
               <thead>
                 <tr>
-                  <th style="width: 34%">Group</th>
+                  <th style="width: 18%">Provider</th>
+                  <th style="width: 28%">Group</th>
                   <th style="width: 116px">Use</th>
                   <th style="width: 86px" class="count">Movies</th>
                   <th style="width: 86px" class="count">Series</th>
@@ -741,7 +806,7 @@
                 </tr>
               </thead>
               <tbody id="groupRows">
-                <tr><td colspan="6"><div class="empty-state">Open or paste a playlist</div></td></tr>
+                <tr><td colspan="7"><div class="empty-state">Open or paste a playlist</div></td></tr>
               </tbody>
             </table>
           </div>
@@ -771,6 +836,9 @@
 
   <script>
     const state = {
+      providers: [],
+      activeProviderId: "",
+      providerSources: new Map(),
       groups: [],
       selectedMovies: new Set(),
       selectedSeries: new Set(),
@@ -785,7 +853,7 @@
     };
 
     const ids = [
-      "serverUrl", "username", "password", "m3uUrl", "userAgent", "inlineSecrets",
+      "providerName", "serverUrl", "username", "password", "m3uUrl", "userAgent", "inlineSecrets",
       "moviesDir", "seriesDir", "groupsFile", "catalogFile", "appendTmdb", "generateNfo",
       "dryRun", "cleanOutput", "requireSelectedGroup", "qualityWords", "tmdbEnabled",
       "tmdbKey", "tmdbLanguage", "tmdbMinScore", "tmdbCache", "tmdbMissingOnly",
@@ -793,8 +861,14 @@
       "jellyfinItemIds", "jellyfinScan"
     ];
     const form = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+    const providerFieldIds = ["providerName", "serverUrl", "username", "password", "m3uUrl", "userAgent"];
     const els = {
       status: document.getElementById("status"),
+      saveSettings: document.getElementById("saveSettings"),
+      providerList: document.getElementById("providerList"),
+      addProvider: document.getElementById("addProvider"),
+      duplicateProvider: document.getElementById("duplicateProvider"),
+      removeProvider: document.getElementById("removeProvider"),
       fileInput: document.getElementById("fileInput"),
       pastePanel: document.getElementById("pastePanel"),
       pasteInput: document.getElementById("pasteInput"),
@@ -826,6 +900,63 @@
       element.addEventListener("change", render);
     }
 
+    for (const id of providerFieldIds) {
+      form[id].addEventListener("input", () => {
+        syncActiveProviderFromForm();
+        renderProviders();
+        render();
+      });
+      form[id].addEventListener("change", () => {
+        syncActiveProviderFromForm();
+        renderProviders();
+        render();
+      });
+    }
+
+    els.addProvider.addEventListener("click", () => {
+      syncActiveProviderFromForm();
+      const provider = createProvider({name: `Provider ${state.providers.length + 1}`});
+      state.providers.push(provider);
+      selectProvider(provider.id);
+      setStatus("Provider added");
+    });
+
+    els.duplicateProvider.addEventListener("click", () => {
+      syncActiveProviderFromForm();
+      const active = activeProvider();
+      const provider = createProvider({...active, id: "", name: `${active.name || "Provider"} Copy`});
+      state.providers.push(provider);
+      selectProvider(provider.id);
+      setStatus("Provider duplicated");
+    });
+
+    els.removeProvider.addEventListener("click", () => {
+      if (state.providers.length <= 1) return;
+      const removed = state.activeProviderId;
+      state.providers = state.providers.filter((provider) => provider.id !== removed);
+      state.groups = state.groups.filter((group) => group.providerId !== removed);
+      for (const set of [state.selectedMovies, state.selectedSeries]) {
+        for (const key of Array.from(set)) {
+          if (providerIdFromKey(key) === removed) set.delete(key);
+        }
+      }
+      selectProvider(state.providers[0].id);
+      setStatus("Provider removed");
+    });
+
+    els.saveSettings.addEventListener("click", async () => {
+      try {
+        syncActiveProviderFromForm();
+        await apiJson("/api/settings", {
+          settings: settingsPayload(),
+          selected_groups: selectedGroupsPayload(),
+        });
+        setStatus("Settings saved");
+      } catch (error) {
+        showError(error);
+      }
+    });
+
     els.fileInput.addEventListener("change", async () => {
       const file = els.fileInput.files && els.fileInput.files[0];
       if (!file) return;
@@ -833,6 +964,7 @@
       try {
         const body = new FormData();
         body.append("file", file);
+        body.append("payload", JSON.stringify(settingsPayload()));
         const data = await apiForm("/api/playlist/upload", body);
         loadGroups(data, file.name);
       } catch (error) {
@@ -848,7 +980,7 @@
     els.parsePaste.addEventListener("click", () => {
       try {
         setStatus("Parsing pasted playlist...");
-        apiJson("/api/playlist/text", {text: els.pasteInput.value})
+        apiJson("/api/playlist/text", {...settingsPayload(), text: els.pasteInput.value})
           .then((data) => loadGroups(data, "pasted playlist"))
           .catch(showError);
       } catch (error) {
@@ -863,6 +995,7 @@
 
     els.buildM3uUrl.addEventListener("click", () => {
       form.m3uUrl.value = buildM3uUrl();
+      syncActiveProviderFromForm();
       render();
       setStatus("M3U URL built");
     });
@@ -899,22 +1032,22 @@
 
     els.selectVisibleMovies.addEventListener("click", () => {
       visibleGroups().forEach((group) => {
-        if (group.movieCount > 0) state.selectedMovies.add(group.name);
+        if (group.movieCount > 0) state.selectedMovies.add(group.key);
       });
       render();
     });
 
     els.selectVisibleSeries.addEventListener("click", () => {
       visibleGroups().forEach((group) => {
-        if (group.seriesCount > 0) state.selectedSeries.add(group.name);
+        if (group.seriesCount > 0) state.selectedSeries.add(group.key);
       });
       render();
     });
 
     els.clearVisible.addEventListener("click", () => {
       visibleGroups().forEach((group) => {
-        state.selectedMovies.delete(group.name);
-        state.selectedSeries.delete(group.name);
+        state.selectedMovies.delete(group.key);
+        state.selectedSeries.delete(group.key);
       });
       render();
     });
@@ -985,6 +1118,11 @@
       return readApiResponse(response);
     }
 
+    async function apiGet(url) {
+      const response = await fetch(url);
+      return readApiResponse(response);
+    }
+
     async function readApiResponse(response) {
       const contentType = response.headers.get("content-type") || "";
       const data = contentType.includes("application/json") ? await response.json() : {error: await response.text()};
@@ -992,13 +1130,110 @@
       return data;
     }
 
-    function settingsPayload() {
+    function createProvider(overrides = {}) {
       return {
-        server_url: form.serverUrl.value.trim(),
-        username: form.username.value,
-        password: form.password.value,
-        m3u_url: form.m3uUrl.value.trim(),
-        user_agent: form.userAgent.value.trim() || "TiviMate/5.1.6 (Android 12)",
+        id: overrides.id || newId(),
+        name: overrides.name || "Provider",
+        server_url: overrides.server_url || "",
+        username: overrides.username || "",
+        password: overrides.password || "",
+        m3u_url: overrides.m3u_url || "",
+        user_agent: overrides.user_agent || "TiviMate/5.1.6 (Android 12)",
+        series_source: overrides.series_source || "m3u",
+      };
+    }
+
+    function newId() {
+      if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+      return `provider-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    }
+
+    function ensureProvider() {
+      if (state.providers.length === 0) {
+        state.providers.push(createProvider({id: "default", name: "Provider 1"}));
+      }
+      if (!state.activeProviderId || !state.providers.some((provider) => provider.id === state.activeProviderId)) {
+        state.activeProviderId = state.providers[0].id;
+      }
+    }
+
+    function activeProvider() {
+      ensureProvider();
+      return state.providers.find((provider) => provider.id === state.activeProviderId) || state.providers[0];
+    }
+
+    function syncActiveProviderFromForm() {
+      ensureProvider();
+      const provider = activeProvider();
+      provider.name = form.providerName.value.trim() || "Provider";
+      provider.server_url = form.serverUrl.value.trim();
+      provider.username = form.username.value;
+      provider.password = form.password.value;
+      provider.m3u_url = form.m3uUrl.value.trim();
+      provider.user_agent = form.userAgent.value.trim() || "TiviMate/5.1.6 (Android 12)";
+    }
+
+    function applyProviderToForm(provider) {
+      form.providerName.value = provider.name || "Provider";
+      form.serverUrl.value = provider.server_url || "";
+      form.username.value = provider.username || "";
+      form.password.value = provider.password || "";
+      form.m3uUrl.value = provider.m3u_url || "";
+      form.userAgent.value = provider.user_agent || "TiviMate/5.1.6 (Android 12)";
+    }
+
+    function selectProvider(id) {
+      state.activeProviderId = id;
+      applyProviderToForm(activeProvider());
+      renderProviders();
+      render();
+    }
+
+    function renderProviders() {
+      ensureProvider();
+      els.removeProvider.disabled = state.providers.length <= 1;
+      els.providerList.replaceChildren(...state.providers.map((provider) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `provider-item${provider.id === state.activeProviderId ? " active" : ""}`;
+        button.title = provider.server_url || provider.m3u_url || provider.name;
+        button.addEventListener("click", () => {
+          syncActiveProviderFromForm();
+          selectProvider(provider.id);
+        });
+        const name = document.createElement("span");
+        name.textContent = provider.name || "Provider";
+        const counts = providerCounts(provider.id);
+        const meta = document.createElement("small");
+        meta.textContent = `${counts.groups.toLocaleString()} groups`;
+        button.append(name, meta);
+        return button;
+      }));
+    }
+
+    function providerCounts(providerId) {
+      const groups = state.groups.filter((group) => group.providerId === providerId);
+      return {groups: groups.length};
+    }
+
+    function providersPayload() {
+      return state.providers.map((provider) => ({
+        id: provider.id,
+        name: provider.name || "Provider",
+        server_url: provider.server_url || "",
+        username: provider.username || "",
+        password: provider.password || "",
+        m3u_url: provider.m3u_url || "",
+        user_agent: provider.user_agent || "TiviMate/5.1.6 (Android 12)",
+        series_source: state.providerSources.get(provider.id) === "xtream_api" ? "api" : (provider.series_source || "m3u"),
+      }));
+    }
+
+    function settingsPayload() {
+      syncActiveProviderFromForm();
+      return {
+        providers: providersPayload(),
+        active_provider_id: state.activeProviderId,
         series_source: state.groupSource === "xtream_api" ? "api" : "m3u",
         movies_dir: form.moviesDir.value.trim(),
         series_dir: form.seriesDir.value.trim(),
@@ -1058,6 +1293,10 @@
 
     function loadGroups(data, sourceName) {
       state.groups = (data.groups || []).map((group) => ({
+        key: group.key || `${group.provider_id || "default"}::${group.name}`,
+        providerId: group.provider_id || "default",
+        providerName: group.provider_name || "Provider 1",
+        providerSource: group.provider_source || data.source || "m3u",
         name: group.name,
         movieCount: Number(group.movie_count || 0),
         seriesCount: Number(group.series_count || 0),
@@ -1065,9 +1304,9 @@
         total: Number(group.total || 0),
         samples: new Set(group.samples || []),
       }));
-      state.selectedMovies = new Set();
-      state.selectedSeries = new Set();
       state.groupSource = data.source || "m3u";
+      state.providerSources = new Map();
+      for (const group of state.groups) state.providerSources.set(group.providerId, group.providerSource);
       state.search = "";
       els.searchInput.value = "";
       const stats = data.stats || {};
@@ -1079,15 +1318,17 @@
 
     function visibleGroups() {
       return state.groups.filter((group) => {
-        if (state.search && !group.name.toLowerCase().includes(state.search)) return false;
+        const haystack = `${group.providerName} ${group.name}`.toLowerCase();
+        if (state.search && !haystack.includes(state.search)) return false;
         if (state.filter === "movies" && group.movieCount <= 0) return false;
         if (state.filter === "series" && group.seriesCount <= 0) return false;
-        if (state.filter === "selected" && !state.selectedMovies.has(group.name) && !state.selectedSeries.has(group.name)) return false;
+        if (state.filter === "selected" && !state.selectedMovies.has(group.key) && !state.selectedSeries.has(group.key)) return false;
         return true;
       });
     }
 
     function render() {
+      renderProviders();
       renderSummary();
       renderRows();
       const running = state.jobStatus && !["complete", "failed", "cancelled"].includes(state.jobStatus.status);
@@ -1116,11 +1357,11 @@
         ? `${rows.length.toLocaleString()} of ${state.groups.length.toLocaleString()} groups shown`
         : "No playlist loaded";
       if (!hasGroups) {
-        els.groupRows.innerHTML = '<tr><td colspan="6"><div class="empty-state">Open or paste a playlist</div></td></tr>';
+        els.groupRows.innerHTML = '<tr><td colspan="7"><div class="empty-state">Open or paste a playlist</div></td></tr>';
         return;
       }
       if (rows.length === 0) {
-        els.groupRows.innerHTML = '<tr><td colspan="6"><div class="empty-state">No matching groups</div></td></tr>';
+        els.groupRows.innerHTML = '<tr><td colspan="7"><div class="empty-state">No matching groups</div></td></tr>';
         return;
       }
       els.groupRows.replaceChildren(...rows.map(renderRow));
@@ -1129,6 +1370,7 @@
     function renderRow(group) {
       const tr = document.createElement("tr");
       tr.append(
+        cell(group.providerName, "provider-name"),
         cell(group.name, "group-name"),
         selectorCell(group),
         cell(group.movieCount.toLocaleString(), "count"),
@@ -1152,15 +1394,15 @@
       const set = kind === "movie" ? state.selectedMovies : state.selectedSeries;
       const count = kind === "movie" ? group.movieCount : group.seriesCount;
       const label = document.createElement("label");
-      label.className = `pick ${kind}${set.has(group.name) ? " on" : ""}${count <= 0 ? " disabled" : ""}`;
+      label.className = `pick ${kind}${set.has(group.key) ? " on" : ""}${count <= 0 ? " disabled" : ""}`;
       label.title = kind === "movie" ? "Movie group" : "Series group";
       const input = document.createElement("input");
       input.type = "checkbox";
-      input.checked = set.has(group.name);
+      input.checked = set.has(group.key);
       input.disabled = count <= 0;
       input.addEventListener("change", () => {
-        if (input.checked) set.add(group.name);
-        else set.delete(group.name);
+        if (input.checked) set.add(group.key);
+        else set.delete(group.key);
         render();
       });
       label.append(input, document.createTextNode(kind === "movie" ? "M" : "S"));
@@ -1176,31 +1418,94 @@
     }
 
     function selectedGroupsPayload() {
+      const providers = {};
+      for (const provider of state.providers) {
+        providers[provider.id] = {
+          movie_groups: [],
+          series_groups: [],
+          movie_category_ids: [],
+          series_category_ids: [],
+        };
+      }
+      for (const key of state.selectedMovies) {
+        const providerId = providerIdFromKey(key);
+        const groupName = groupNameFromKey(key);
+        if (!providers[providerId]) providers[providerId] = {movie_groups: [], series_groups: [], movie_category_ids: [], series_category_ids: []};
+        providers[providerId].movie_groups.push(groupName);
+      }
+      for (const key of state.selectedSeries) {
+        const providerId = providerIdFromKey(key);
+        const groupName = groupNameFromKey(key);
+        if (!providers[providerId]) providers[providerId] = {movie_groups: [], series_groups: [], movie_category_ids: [], series_category_ids: []};
+        providers[providerId].series_groups.push(groupName);
+      }
+      for (const providerGroups of Object.values(providers)) {
+        providerGroups.movie_groups.sort(localeSort);
+        providerGroups.series_groups.sort(localeSort);
+      }
+      const firstProvider = state.providers[0] && providers[state.providers[0].id] ? providers[state.providers[0].id] : null;
       return {
-        movie_groups: Array.from(state.selectedMovies).sort(localeSort),
-        series_groups: Array.from(state.selectedSeries).sort(localeSort),
+        providers,
+        movie_groups: firstProvider ? firstProvider.movie_groups : [],
+        series_groups: firstProvider ? firstProvider.series_groups : [],
         movie_category_ids: [],
         series_category_ids: [],
       };
     }
 
+    function providerIdFromKey(key) {
+      return String(key).split("::", 1)[0] || "default";
+    }
+
+    function groupNameFromKey(key) {
+      const text = String(key);
+      const marker = text.indexOf("::");
+      return marker >= 0 ? text.slice(marker + 2) : text;
+    }
+
     function configYaml() {
+      syncActiveProviderFromForm();
       const inline = form.inlineSecrets.checked;
+      const providers = providersPayload();
       const lines = [];
-      lines.push("provider:");
-      lines.push(`  server_url: ${yamlString(form.serverUrl.value.trim())}`);
-      if (inline) {
-        lines.push(`  username: ${yamlString(form.username.value)}`);
-        lines.push(`  password: ${yamlString(form.password.value)}`);
+      if (providers.length === 1) {
+        const provider = providers[0];
+        lines.push("provider:");
+        lines.push(`  server_url: ${yamlString(provider.server_url)}`);
+        if (inline) {
+          lines.push(`  username: ${yamlString(provider.username)}`);
+          lines.push(`  password: ${yamlString(provider.password)}`);
+        } else {
+          lines.push('  username_env: "XTREAM_USERNAME"');
+          lines.push('  password_env: "XTREAM_PASSWORD"');
+        }
+        if (provider.m3u_url) {
+          if (inline) lines.push(`  m3u_url: ${yamlString(provider.m3u_url)}`);
+          else lines.push('  m3u_url_env: "XTREAM_M3U_URL"');
+        }
+        lines.push(`  user_agent: ${yamlString(provider.user_agent)}`);
       } else {
-        lines.push('  username_env: "XTREAM_USERNAME"');
-        lines.push('  password_env: "XTREAM_PASSWORD"');
+        lines.push("providers:");
+        providers.forEach((provider, index) => {
+          const suffix = index + 1;
+          lines.push(`  - id: ${yamlString(provider.id)}`);
+          lines.push(`    name: ${yamlString(provider.name)}`);
+          lines.push(`    server_url: ${yamlString(provider.server_url)}`);
+          if (inline) {
+            lines.push(`    username: ${yamlString(provider.username)}`);
+            lines.push(`    password: ${yamlString(provider.password)}`);
+          } else {
+            lines.push(`    username_env: ${yamlString(`XTREAM_${suffix}_USERNAME`)}`);
+            lines.push(`    password_env: ${yamlString(`XTREAM_${suffix}_PASSWORD`)}`);
+          }
+          if (provider.m3u_url) {
+            if (inline) lines.push(`    m3u_url: ${yamlString(provider.m3u_url)}`);
+            else lines.push(`    m3u_url_env: ${yamlString(`XTREAM_${suffix}_M3U_URL`)}`);
+          }
+          lines.push(`    user_agent: ${yamlString(provider.user_agent)}`);
+          lines.push(`    series_source: ${yamlString(provider.series_source || "m3u")}`);
+        });
       }
-      if (form.m3uUrl.value.trim()) {
-        if (inline) lines.push(`  m3u_url: ${yamlString(form.m3uUrl.value.trim())}`);
-        else lines.push('  m3u_url_env: "XTREAM_M3U_URL"');
-      }
-      lines.push(`  user_agent: ${yamlString(form.userAgent.value.trim() || "TiviMate/5.1.6 (Android 12)")}`);
       lines.push("");
       lines.push(`selected_groups_file: ${yamlString(form.groupsFile.value.trim() || "selected-groups.json")}`);
       if (form.catalogFile.value.trim()) lines.push(`catalog_file: ${yamlString(form.catalogFile.value.trim())}`);
@@ -1245,11 +1550,15 @@
     }
 
     function envText() {
-      const pairs = [
-        ["XTREAM_USERNAME", form.username.value],
-        ["XTREAM_PASSWORD", form.password.value],
-      ];
-      if (form.m3uUrl.value.trim()) pairs.push(["XTREAM_M3U_URL", form.m3uUrl.value.trim()]);
+      syncActiveProviderFromForm();
+      const providers = providersPayload();
+      const pairs = [];
+      providers.forEach((provider, index) => {
+        const suffix = providers.length === 1 ? "XTREAM" : `XTREAM_${index + 1}`;
+        pairs.push([`${suffix}_USERNAME`, provider.username]);
+        pairs.push([`${suffix}_PASSWORD`, provider.password]);
+        if (provider.m3u_url) pairs.push([`${suffix}_M3U_URL`, provider.m3u_url]);
+      });
       if (form.tmdbKey.value) pairs.push(["TMDB_API_KEY", form.tmdbKey.value]);
       if (form.jellyfinKey.value) pairs.push(["JELLYFIN_API_KEY", form.jellyfinKey.value]);
       return pairs.map(([key, value]) => `${key}=${shellQuote(value)}`).join("\n") + "\n";
@@ -1279,9 +1588,10 @@
     }
 
     function buildM3uUrl() {
-      const base = form.serverUrl.value.trim().replace(/\/+$/, "");
-      const user = form.username.value;
-      const pass = form.password.value;
+      const provider = activeProvider();
+      const base = (provider.server_url || form.serverUrl.value).trim().replace(/\/+$/, "");
+      const user = provider.username || form.username.value;
+      const pass = provider.password || form.password.value;
       if (!base || !user || !pass) return "";
       return `${base}/get.php?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}&type=m3u_plus&output=ts`;
     }
@@ -1316,6 +1626,90 @@
       URL.revokeObjectURL(url);
     }
 
+    async function initialize() {
+      state.providers = [createProvider({id: "default", name: "Provider 1"})];
+      state.activeProviderId = state.providers[0].id;
+      applyProviderToForm(state.providers[0]);
+      try {
+        const saved = await apiGet("/api/settings");
+        if (saved && Object.keys(saved).length) {
+          applySavedState(saved);
+          setStatus("Settings loaded");
+        }
+      } catch (error) {
+        showError(error);
+      }
+      renderProviders();
+      render();
+    }
+
+    function applySavedState(saved) {
+      const settings = saved.settings || saved;
+      const providers = Array.isArray(settings.providers) ? settings.providers : [];
+      state.providers = (providers.length ? providers : [settings]).map((provider, index) => createProvider({
+        id: provider.id || (index === 0 ? "default" : ""),
+        name: provider.name || provider.provider_name || `Provider ${index + 1}`,
+        server_url: provider.server_url || "",
+        username: provider.username || "",
+        password: provider.password || "",
+        m3u_url: provider.m3u_url || "",
+        user_agent: provider.user_agent || "TiviMate/5.1.6 (Android 12)",
+        series_source: provider.series_source || settings.series_source || "m3u",
+      }));
+      state.activeProviderId = settings.active_provider_id || state.providers[0].id;
+      ensureProvider();
+      applyProviderToForm(activeProvider());
+      applyGlobalSettings(settings);
+      applySavedSelections(saved.selected_groups || {});
+    }
+
+    function applyGlobalSettings(settings) {
+      setValue(form.moviesDir, settings.movies_dir);
+      setValue(form.seriesDir, settings.series_dir);
+      setValue(form.catalogFile, settings.catalog_file);
+      setChecked(form.appendTmdb, settings.append_tmdb);
+      setChecked(form.generateNfo, settings.generate_nfo);
+      setChecked(form.dryRun, settings.dry_run);
+      setChecked(form.cleanOutput, settings.clean_output);
+      setChecked(form.requireSelectedGroup, settings.require_selected_group);
+      if (Array.isArray(settings.quality_words)) form.qualityWords.value = settings.quality_words.join(", ");
+      setChecked(form.tmdbEnabled, settings.tmdb_enabled);
+      setValue(form.tmdbKey, settings.tmdb_key);
+      setValue(form.tmdbLanguage, settings.tmdb_language);
+      if (settings.tmdb_min_score !== undefined) form.tmdbMinScore.value = settings.tmdb_min_score;
+      setValue(form.tmdbCache, settings.tmdb_cache);
+      setChecked(form.tmdbMissingOnly, settings.tmdb_missing_only);
+      setChecked(form.tmdbFailOnError, settings.tmdb_fail_on_error);
+      setChecked(form.jellyfinEnabled, settings.jellyfin_enabled);
+      setValue(form.jellyfinUrl, settings.jellyfin_url);
+      setValue(form.jellyfinKey, settings.jellyfin_key);
+      if (Array.isArray(settings.jellyfin_item_ids)) form.jellyfinItemIds.value = settings.jellyfin_item_ids.join(", ");
+      setChecked(form.jellyfinScan, settings.jellyfin_scan);
+    }
+
+    function applySavedSelections(selected) {
+      state.selectedMovies = new Set();
+      state.selectedSeries = new Set();
+      const providers = selected.providers || {};
+      for (const [providerId, providerGroups] of Object.entries(providers)) {
+        for (const group of providerGroups.movie_groups || []) state.selectedMovies.add(`${providerId}::${group}`);
+        for (const group of providerGroups.series_groups || []) state.selectedSeries.add(`${providerId}::${group}`);
+      }
+      if (!Object.keys(providers).length) {
+        const first = state.providers[0] ? state.providers[0].id : "default";
+        for (const group of selected.movie_groups || []) state.selectedMovies.add(`${first}::${group}`);
+        for (const group of selected.series_groups || []) state.selectedSeries.add(`${first}::${group}`);
+      }
+    }
+
+    function setValue(element, value) {
+      if (value !== undefined && value !== null) element.value = value;
+    }
+
+    function setChecked(element, value) {
+      if (value !== undefined && value !== null) element.checked = Boolean(value);
+    }
+
     function setStatus(message) {
       els.status.textContent = message;
       els.status.classList.remove("error");
@@ -1326,7 +1720,7 @@
       els.status.classList.add("error");
     }
 
-    render();
+    initialize();
   </script>
 </body>
 </html>

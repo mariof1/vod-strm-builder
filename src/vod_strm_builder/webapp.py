@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -23,6 +24,11 @@ from .xtream import XtreamClient
 
 
 TERMINAL_STATES = {"complete", "failed", "cancelled"}
+logging.basicConfig(
+    level=os.environ.get("VSB_LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+LOG = logging.getLogger(__name__)
 
 
 def create_app(work_dir: Path | None = None) -> Flask:
@@ -37,30 +43,67 @@ def create_app(work_dir: Path | None = None) -> Flask:
     def health():
         return jsonify({"ok": True, "work_dir": str(state.work_dir)})
 
+    @app.get("/api/settings")
+    def get_settings():
+        return jsonify(state.load_settings())
+
+    @app.post("/api/settings")
+    def save_settings():
+        try:
+            payload = api_payload()
+            state.save_settings(payload)
+            return jsonify({"ok": True, "settings": payload})
+        except Exception as exc:
+            LOG.exception("settings save failed")
+            return json_error(exc)
+
     @app.post("/api/playlist/fetch")
     def fetch_playlist():
         try:
             payload = api_payload()
-            url = payload.get("m3u_url") or build_m3u_url(payload)
-            if not url:
+            providers = settings_providers(payload)
+            if not providers:
                 raise ValueError("Provider URL, username, and password are required.")
-            try:
-                groups = state.fetch_and_scan_playlist(url, str(payload.get("user_agent") or DEFAULT_USER_AGENT))
-                return jsonify(group_response(groups, playlist_cached=True, source="m3u"))
-            except Exception as playlist_exc:
+
+            all_groups: list[dict[str, object]] = []
+            playlist_cached = True
+            sources: set[str] = set()
+            warnings: list[str] = []
+            for provider in providers:
+                provider_id = provider_identifier(provider)
+                provider_name = provider_label(provider)
+                url = clean_string(provider.get("m3u_url")) or build_m3u_url(provider)
+                if not url:
+                    raise ValueError(f"Provider {provider_name} is missing an M3U URL or URL credentials.")
+                LOG.info("fetching playlist groups provider=%s url=%s", provider_name, redact_url(url))
                 try:
-                    groups = state.fetch_xtream_groups(payload)
-                    return jsonify(
-                        group_response(
-                            groups,
-                            playlist_cached=False,
-                            source="xtream_api",
-                            warning=str(playlist_exc),
-                        )
+                    groups = state.fetch_and_scan_playlist(
+                        url,
+                        str(provider.get("user_agent") or DEFAULT_USER_AGENT),
+                        provider_id,
                     )
-                except Exception:
-                    raise playlist_exc
+                    source = "m3u"
+                except Exception as playlist_exc:
+                    LOG.warning("m3u fetch failed provider=%s error=%s", provider_name, playlist_exc)
+                    try:
+                        groups = state.fetch_xtream_groups(provider)
+                        playlist_cached = False
+                        source = "xtream_api"
+                        warnings.append(f"{provider_name}: {playlist_exc}")
+                    except Exception:
+                        raise playlist_exc
+                groups = tag_groups(groups, provider_id, provider_name, source)
+                all_groups.extend(groups)
+                sources.add(source)
+                LOG.info("provider groups fetched provider=%s source=%s groups=%s", provider_name, source, len(groups))
+
+            source = "mixed" if len(sources) > 1 else next(iter(sources), "m3u")
+            response = group_response(all_groups, playlist_cached=playlist_cached, source=source)
+            if warnings:
+                response["warning"] = "; ".join(warnings)
+            return jsonify(response)
         except Exception as exc:
+            LOG.exception("playlist fetch failed")
             return json_error(exc)
 
     @app.post("/api/playlist/text")
@@ -70,21 +113,32 @@ def create_app(work_dir: Path | None = None) -> Flask:
             text = str(payload.get("text") or "")
             if not text.strip():
                 raise ValueError("Playlist text is empty.")
-            groups = state.write_and_scan_playlist(text)
+            provider = active_provider_from_payload(payload)
+            provider_id = provider_identifier(provider)
+            provider_name = provider_label(provider)
+            LOG.info("scanning pasted playlist provider=%s bytes=%s", provider_name, len(text.encode("utf-8", errors="replace")))
+            groups = tag_groups(state.write_and_scan_playlist(text, provider_id), provider_id, provider_name)
             return jsonify(group_response(groups, playlist_cached=True, source="m3u"))
         except Exception as exc:
+            LOG.exception("pasted playlist scan failed")
             return json_error(exc)
 
     @app.post("/api/playlist/upload")
     def upload_playlist():
         try:
+            payload = api_payload()
             upload = request.files.get("file")
             if upload is None:
                 raise ValueError("No playlist file was uploaded.")
-            upload.save(state.playlist_cache)
-            groups = state.scan_cached_playlist()
+            provider = active_provider_from_payload(payload)
+            provider_id = provider_identifier(provider)
+            provider_name = provider_label(provider)
+            upload.save(state.playlist_cache_for(provider_id))
+            LOG.info("uploaded playlist provider=%s filename=%s", provider_name, upload.filename or "")
+            groups = tag_groups(state.scan_cached_playlist(provider_id), provider_id, provider_name)
             return jsonify(group_response(groups, playlist_cached=True, source="m3u"))
         except Exception as exc:
+            LOG.exception("playlist upload failed")
             return json_error(exc)
 
     @app.post("/api/generate")
@@ -94,6 +148,7 @@ def create_app(work_dir: Path | None = None) -> Flask:
             job = state.start_job(payload)
             return jsonify(job.public())
         except Exception as exc:
+            LOG.exception("generator start failed")
             return json_error(exc)
 
     @app.get("/api/jobs/<job_id>")
@@ -115,6 +170,7 @@ def create_app(work_dir: Path | None = None) -> Flask:
         job = state.get_job(job_id)
         if job is None:
             return jsonify({"error": "Job not found"}), 404
+        LOG.info("cancelling generator job id=%s", job_id)
         job.cancel()
         return jsonify(job.public())
 
@@ -127,16 +183,48 @@ class AppState:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.jobs_dir = self.work_dir / "jobs"
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        self.playlists_dir = self.work_dir / "playlists"
+        self.playlists_dir.mkdir(parents=True, exist_ok=True)
         self.playlist_cache = self.work_dir / "playlist.m3u"
+        self.settings_path = self.work_dir / "web-settings.json"
         self.jobs: dict[str, Job] = {}
         self.lock = threading.Lock()
 
-    def fetch_and_scan_playlist(self, url: str, user_agent: str) -> list[dict[str, object]]:
+    def load_settings(self) -> dict[str, Any]:
+        if not self.settings_path.exists():
+            return {}
+        try:
+            data = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            LOG.warning("settings file is not valid JSON path=%s", self.settings_path)
+            return {}
+        if not isinstance(data, dict):
+            LOG.warning("settings file is not a JSON object path=%s", self.settings_path)
+            return {}
+        LOG.info("loaded web settings path=%s providers=%s", self.settings_path, len(settings_providers(data.get("settings") or data)))
+        return data
+
+    def save_settings(self, payload: dict[str, Any]) -> None:
+        self.settings_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        LOG.info(
+            "saved web settings path=%s providers=%s",
+            self.settings_path,
+            len(settings_providers(payload.get("settings") or payload)),
+        )
+
+    def playlist_cache_for(self, provider_id: str) -> Path:
+        if provider_id == "default":
+            return self.playlist_cache
+        safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in provider_id).strip("_")
+        return self.playlists_dir / f"{safe or 'default'}.m3u"
+
+    def fetch_and_scan_playlist(self, url: str, user_agent: str, provider_id: str = "default") -> list[dict[str, object]]:
         headers = {"User-Agent": user_agent}
+        playlist_cache = self.playlist_cache_for(provider_id)
         try:
             with requests.get(url, stream=True, timeout=(20, 240), headers=headers) as response:
                 response.raise_for_status()
-                with self.playlist_cache.open("w", encoding="utf-8", errors="replace", newline="\n") as fh:
+                with playlist_cache.open("w", encoding="utf-8", errors="replace", newline="\n") as fh:
 
                     def lines():
                         for line in response.iter_lines(decode_unicode=True):
@@ -156,42 +244,35 @@ class AppState:
         series = client.series()
         return xtream_group_summaries(movie_categories, series_categories, movies, series)
 
-    def write_and_scan_playlist(self, text: str) -> list[dict[str, object]]:
-        self.playlist_cache.write_text(text, encoding="utf-8")
-        return self.scan_cached_playlist()
+    def write_and_scan_playlist(self, text: str, provider_id: str = "default") -> list[dict[str, object]]:
+        self.playlist_cache_for(provider_id).write_text(text, encoding="utf-8")
+        return self.scan_cached_playlist(provider_id)
 
-    def scan_cached_playlist(self) -> list[dict[str, object]]:
-        with self.playlist_cache.open("r", encoding="utf-8", errors="replace") as fh:
+    def scan_cached_playlist(self, provider_id: str = "default") -> list[dict[str, object]]:
+        with self.playlist_cache_for(provider_id).open("r", encoding="utf-8", errors="replace") as fh:
             return [group.to_dict() for group in scan_m3u_groups(fh)]
 
     def start_job(self, payload: dict[str, Any]) -> "Job":
         settings = dict(payload.get("settings") or {})
         selected_groups = dict(payload.get("selected_groups") or {})
-        validate_generate_settings(settings)
+        provider_runs = self.build_provider_runs(settings, selected_groups)
 
         job_id = uuid.uuid4().hex[:12]
         job_dir = self.jobs_dir / job_id
         job_dir.mkdir(parents=True, exist_ok=False)
-        config_path = job_dir / "config.yml"
-        groups_path = job_dir / "selected-groups.json"
         summary_path = job_dir / "last-run.json"
         log_path = job_dir / "generate.log"
-
-        groups_path.write_text(json.dumps(selected_groups, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        env = job_environment(settings)
-        config = build_config(settings, groups_path, self.playlist_cache if self.playlist_cache.exists() else None)
-        config_path.write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
         job = Job(
             job_id=job_id,
             job_dir=job_dir,
-            config_path=config_path,
+            runs=provider_runs,
             summary_path=summary_path,
             log_path=log_path,
-            env=env,
         )
         with self.lock:
             self.jobs[job_id] = job
+        LOG.info("starting generator job id=%s providers=%s", job_id, len(provider_runs))
         job.start()
         return job
 
@@ -199,23 +280,49 @@ class AppState:
         with self.lock:
             return self.jobs.get(job_id)
 
+    def build_provider_runs(self, settings: dict[str, Any], selected_groups: dict[str, Any]) -> list[dict[str, Any]]:
+        providers = settings_providers(settings)
+        if not providers:
+            raise ValueError("At least one provider is required.")
+        selected_by_provider = selected_groups_by_provider(selected_groups, providers)
+        runs: list[dict[str, Any]] = []
+        for index, provider in enumerate(providers):
+            provider_id = provider_identifier(provider)
+            provider_name = provider_label(provider)
+            provider_settings = settings_for_provider(settings, provider)
+            validate_generate_settings(provider_settings, provider_name)
+            provider_selected = selected_by_provider.get(provider_id) or empty_selected_groups()
+            groups_path = self.jobs_dir / "pending-selected-groups.json"
+            playlist_cache = self.playlist_cache_for(provider_id)
+            if not playlist_cache.exists() and self.playlist_cache.exists() and provider_id == "default":
+                playlist_cache = self.playlist_cache
+            run = {
+                "provider_id": provider_id,
+                "provider_name": provider_name,
+                "settings": provider_settings,
+                "selected_groups": provider_selected,
+                "groups_path": groups_path,
+                "playlist_cache": playlist_cache if playlist_cache.exists() else None,
+                "clean_output": as_bool(provider_settings.get("clean_output")) and index == 0,
+            }
+            runs.append(run)
+        return runs
+
 
 class Job:
     def __init__(
         self,
         job_id: str,
         job_dir: Path,
-        config_path: Path,
+        runs: list[dict[str, Any]],
         summary_path: Path,
         log_path: Path,
-        env: dict[str, str],
     ) -> None:
         self.id = job_id
         self.job_dir = job_dir
-        self.config_path = config_path
+        self.runs = runs
         self.summary_path = summary_path
         self.log_path = log_path
-        self.env = env
         self.status = "queued"
         self.started_at: float | None = None
         self.ended_at: float | None = None
@@ -230,32 +337,77 @@ class Job:
     def run(self) -> None:
         self.status = "running"
         self.started_at = time.time()
-        command = [
-            sys.executable,
-            "-m",
-            "vod_strm_builder.cli",
-            "generate",
-            "--config",
-            str(self.config_path),
-            "--summary-json",
-            str(self.summary_path),
-        ]
+        aggregate: dict[str, Any] = {"providers": [], "provider_count": len(self.runs)}
         with self.log_path.open("w", encoding="utf-8", errors="replace") as log:
-            log.write("Running: vod-strm-builder generate --config config.yml --summary-json last-run.json\n\n")
-            log.flush()
-            self.process = subprocess.Popen(
-                command,
-                cwd=self.job_dir,
-                env={**os.environ, **self.env},
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-            self.return_code = self.process.wait()
+            for index, run in enumerate(self.runs, start=1):
+                if self.status == "cancelled":
+                    break
+                provider_id = str(run["provider_id"])
+                provider_name = str(run["provider_name"])
+                run_dir = self.job_dir / f"{index:02d}-{provider_id}"
+                run_dir.mkdir(parents=True, exist_ok=True)
+                config_path = run_dir / "config.yml"
+                groups_path = run_dir / "selected-groups.json"
+                run_summary_path = run_dir / "last-run.json"
+                provider_settings = dict(run["settings"])
+                provider_settings["clean_output"] = bool(run["clean_output"])
+                groups_path.write_text(
+                    json.dumps(run["selected_groups"], indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                config = build_config(provider_settings, groups_path, run.get("playlist_cache"))
+                config_path.write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8")
+                env = job_environment(provider_settings)
+                command = [
+                    sys.executable,
+                    "-m",
+                    "vod_strm_builder.cli",
+                    "generate",
+                    "--config",
+                    str(config_path),
+                    "--summary-json",
+                    str(run_summary_path),
+                ]
+                banner = f"Running provider {index}/{len(self.runs)}: {provider_name}\n"
+                log.write(banner)
+                log.write("Running: vod-strm-builder generate --config config.yml --summary-json last-run.json\n\n")
+                log.flush()
+                LOG.info("job %s provider start provider=%s config=%s", self.id, provider_name, config_path)
+                self.process = subprocess.Popen(
+                    command,
+                    cwd=run_dir,
+                    env={**os.environ, **env},
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+                assert self.process.stdout is not None
+                for line in self.process.stdout:
+                    log.write(line)
+                    log.flush()
+                    LOG.info("job %s provider=%s %s", self.id, provider_name, line.rstrip())
+                self.return_code = self.process.wait()
+                provider_summary = read_json_file(run_summary_path)
+                aggregate["providers"].append(
+                    {
+                        "provider_id": provider_id,
+                        "provider_name": provider_name,
+                        "return_code": self.return_code,
+                        "summary": provider_summary,
+                    }
+                )
+                LOG.info("job %s provider finished provider=%s return_code=%s", self.id, provider_name, self.return_code)
+                if self.return_code != 0:
+                    break
+                log.write("\n")
+            self.summary_path.write_text(json.dumps(aggregate, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         self.ended_at = time.time()
         if self.status == "cancelled":
+            LOG.info("job %s cancelled", self.id)
             return
         self.status = "complete" if self.return_code == 0 else "failed"
+        LOG.info("job %s finished status=%s return_code=%s", self.id, self.status, self.return_code)
 
     def cancel(self) -> None:
         if self.status in TERMINAL_STATES:
@@ -289,7 +441,7 @@ class Job:
             "return_code": self.return_code,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
-            "config_path": str(self.config_path),
+            "provider_count": len(self.runs),
             "summary_path": str(self.summary_path),
             "log_path": str(self.log_path),
             "summary": self.read_summary(),
@@ -326,6 +478,116 @@ def group_response(
     if warning:
         payload["warning"] = warning
     return payload
+
+
+def settings_providers(settings: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_providers = settings.get("providers")
+    if isinstance(raw_providers, list):
+        providers = [dict(item) for item in raw_providers if isinstance(item, dict)]
+    else:
+        providers = [
+            {
+                "id": clean_string(settings.get("provider_id")) or "default",
+                "name": clean_string(settings.get("provider_name")) or "Provider 1",
+                "server_url": settings.get("server_url"),
+                "username": settings.get("username"),
+                "password": settings.get("password"),
+                "m3u_url": settings.get("m3u_url"),
+                "user_agent": settings.get("user_agent"),
+            }
+        ]
+    normalized: list[dict[str, Any]] = []
+    for index, provider in enumerate(providers, start=1):
+        item = dict(provider)
+        item["id"] = clean_string(item.get("id")) or f"provider-{index}"
+        item["name"] = clean_string(item.get("name")) or f"Provider {index}"
+        item["server_url"] = clean_string(item.get("server_url"))
+        item["username"] = clean_string(item.get("username"))
+        item["password"] = clean_string(item.get("password"))
+        item["m3u_url"] = clean_string(item.get("m3u_url"))
+        item["user_agent"] = clean_string(item.get("user_agent")) or DEFAULT_USER_AGENT
+        if any(item.get(key) for key in ("server_url", "username", "password", "m3u_url")):
+            normalized.append(item)
+    return normalized
+
+
+def active_provider_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    providers = settings_providers(payload)
+    active_id = clean_string(payload.get("active_provider_id"))
+    for provider in providers:
+        if provider_identifier(provider) == active_id:
+            return provider
+    return providers[0] if providers else {"id": "default", "name": "Provider 1", "user_agent": DEFAULT_USER_AGENT}
+
+
+def settings_for_provider(settings: dict[str, Any], provider: dict[str, Any]) -> dict[str, Any]:
+    provider_settings = {key: value for key, value in settings.items() if key != "providers"}
+    provider_settings.update(provider)
+    provider_settings["provider_id"] = provider_identifier(provider)
+    provider_settings["provider_name"] = provider_label(provider)
+    return provider_settings
+
+
+def provider_identifier(provider: dict[str, Any]) -> str:
+    return clean_string(provider.get("id")) or "default"
+
+
+def provider_label(provider: dict[str, Any]) -> str:
+    return clean_string(provider.get("name")) or clean_string(provider.get("server_url")) or provider_identifier(provider)
+
+
+def tag_groups(
+    groups: list[dict[str, object]],
+    provider_id: str,
+    provider_name: str,
+    provider_source: str = "m3u",
+) -> list[dict[str, object]]:
+    tagged = []
+    for group in groups:
+        item = dict(group)
+        item["provider_id"] = provider_id
+        item["provider_name"] = provider_name
+        item["provider_source"] = provider_source
+        item["key"] = f"{provider_id}::{item.get('name', '')}"
+        tagged.append(item)
+    return tagged
+
+
+def empty_selected_groups() -> dict[str, list[str]]:
+    return {
+        "movie_groups": [],
+        "series_groups": [],
+        "movie_category_ids": [],
+        "series_category_ids": [],
+    }
+
+
+def selected_groups_by_provider(
+    selected_groups: dict[str, Any],
+    providers: list[dict[str, Any]],
+) -> dict[str, dict[str, list[str]]]:
+    provider_ids = [provider_identifier(provider) for provider in providers]
+    raw = selected_groups.get("providers")
+    if isinstance(raw, dict):
+        result: dict[str, dict[str, list[str]]] = {}
+        for provider_id in provider_ids:
+            provider_groups = raw.get(provider_id) if isinstance(raw.get(provider_id), dict) else {}
+            result[provider_id] = {
+                "movie_groups": string_list(provider_groups.get("movie_groups")),
+                "series_groups": string_list(provider_groups.get("series_groups")),
+                "movie_category_ids": string_list(provider_groups.get("movie_category_ids")),
+                "series_category_ids": string_list(provider_groups.get("series_category_ids")),
+            }
+        return result
+    first = provider_ids[0] if provider_ids else "default"
+    return {
+        first: {
+            "movie_groups": string_list(selected_groups.get("movie_groups")),
+            "series_groups": string_list(selected_groups.get("series_groups")),
+            "movie_category_ids": string_list(selected_groups.get("movie_category_ids")),
+            "series_category_ids": string_list(selected_groups.get("series_category_ids")),
+        }
+    }
 
 
 def provider_from_settings(settings: dict[str, Any]) -> ProviderConfig:
@@ -471,7 +733,7 @@ def job_environment(settings: dict[str, Any]) -> dict[str, str]:
     return env
 
 
-def validate_generate_settings(settings: dict[str, Any]) -> None:
+def validate_generate_settings(settings: dict[str, Any], provider_name: str = "Provider") -> None:
     required = {
         "username": "Provider username",
         "password": "Provider password",
@@ -482,7 +744,7 @@ def validate_generate_settings(settings: dict[str, Any]) -> None:
     if not provider_server_url(settings):
         missing.insert(0, "Provider server URL")
     if missing:
-        raise ValueError("Missing required settings: " + ", ".join(missing))
+        raise ValueError(f"{provider_name}: missing required settings: " + ", ".join(missing))
     if as_bool(settings.get("jellyfin_enabled")) and not clean_string(settings.get("jellyfin_key")):
         raise ValueError("Jellyfin is enabled but the Jellyfin API key is missing.")
     if as_bool(settings.get("jellyfin_enabled")) and not clean_string(settings.get("jellyfin_url")):
@@ -518,11 +780,37 @@ def as_bool(value: Any) -> bool:
     return bool(value) and str(value).lower() not in {"false", "0", "no", "off"}
 
 
+def read_json_file(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def redact_url(url: str) -> str:
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        return "<custom>"
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+
 def json_error(exc: Exception):
     return jsonify({"error": str(exc)}), 400
 
 
 def api_payload() -> dict[str, Any]:
+    if request.form:
+        raw = request.form.get("payload")
+        if raw:
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("Request form payload must be a JSON object.")
+            return payload
     payload = request.get_json(silent=True)
     if payload is None:
         return {}
