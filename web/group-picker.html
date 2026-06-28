@@ -745,6 +745,7 @@
             <div class="action-group">
               <button id="buildM3uUrl" type="button">Build M3U URL</button>
               <button id="fetchM3u" type="button">Fetch Groups</button>
+              <button id="syncPlaylists" type="button">Sync Playlists</button>
               <label class="file-button">Open M3U
                 <input class="file-input" id="fileInput" type="file" accept=".m3u,.m3u8,.txt">
               </label>
@@ -877,6 +878,7 @@
       clearPaste: document.getElementById("clearPaste"),
       buildM3uUrl: document.getElementById("buildM3uUrl"),
       fetchM3u: document.getElementById("fetchM3u"),
+      syncPlaylists: document.getElementById("syncPlaylists"),
       runGenerate: document.getElementById("runGenerate"),
       cancelGenerate: document.getElementById("cancelGenerate"),
       searchInput: document.getElementById("searchInput"),
@@ -1001,13 +1003,11 @@
     });
 
     els.fetchM3u.addEventListener("click", async () => {
-      setStatus("Fetching playlist...");
-      try {
-        const data = await apiJson("/api/playlist/fetch", settingsPayload());
-        loadGroups(data, "fetched playlist");
-      } catch (error) {
-        showError(error);
-      }
+      syncProviderPlaylists("Fetching playlist...", "fetched playlist");
+    });
+
+    els.syncPlaylists.addEventListener("click", async () => {
+      syncProviderPlaylists("Syncing playlists...", "synced playlists");
     });
 
     els.searchInput.addEventListener("input", () => {
@@ -1128,6 +1128,16 @@
       const data = contentType.includes("application/json") ? await response.json() : {error: await response.text()};
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
       return data;
+    }
+
+    async function syncProviderPlaylists(statusText, sourceName) {
+      setStatus(statusText);
+      try {
+        const data = await apiJson("/api/playlist/fetch", settingsPayload());
+        loadGroups(data, sourceName);
+      } catch (error) {
+        showError(error);
+      }
     }
 
     function createProvider(overrides = {}) {
@@ -1334,6 +1344,8 @@
       const running = state.jobStatus && !["complete", "failed", "cancelled"].includes(state.jobStatus.status);
       els.runGenerate.disabled = Boolean(running);
       els.cancelGenerate.disabled = !running;
+      els.fetchM3u.disabled = Boolean(running);
+      els.syncPlaylists.disabled = Boolean(running);
       els.outputText.value = outputValue(state.activeOutput);
     }
 

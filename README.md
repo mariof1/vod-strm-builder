@@ -139,6 +139,8 @@ The page lets you enter provider settings, output paths, TMDB/Jellyfin options, 
 
 When served by Docker, playlist fetching runs through the local backend so browser CORS does not matter. If you open the HTML file directly, use upload/paste instead of backend actions.
 
+`Fetch Groups` and `Sync Playlists` download each configured provider playlist into the `/work` volume and rescan the groups. Generator runs reuse those cached playlist files; they do not refresh playlists automatically unless no cached file exists yet.
+
 ## Selected Groups And Catalog
 
 The selected groups file is a JSON object with group/category names or category IDs:
