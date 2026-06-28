@@ -36,8 +36,8 @@ def create_app(work_dir: Path | None = None) -> Flask:
 
     @app.post("/api/playlist/fetch")
     def fetch_playlist():
-        payload = request.get_json(force=True) or {}
         try:
+            payload = api_payload()
             url = payload.get("m3u_url") or build_m3u_url(payload)
             if not url:
                 raise ValueError("Provider URL, username, and password are required.")
@@ -48,8 +48,8 @@ def create_app(work_dir: Path | None = None) -> Flask:
 
     @app.post("/api/playlist/text")
     def text_playlist():
-        payload = request.get_json(force=True) or {}
         try:
+            payload = api_payload()
             text = str(payload.get("text") or "")
             if not text.strip():
                 raise ValueError("Playlist text is empty.")
@@ -72,8 +72,8 @@ def create_app(work_dir: Path | None = None) -> Flask:
 
     @app.post("/api/generate")
     def generate():
-        payload = request.get_json(force=True) or {}
         try:
+            payload = api_payload()
             job = state.start_job(payload)
             return jsonify(job.public())
         except Exception as exc:
@@ -418,6 +418,15 @@ def as_bool(value: Any) -> bool:
 
 def json_error(exc: Exception):
     return jsonify({"error": str(exc)}), 400
+
+
+def api_payload() -> dict[str, Any]:
+    payload = request.get_json(silent=True)
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise ValueError("Request body must be a JSON object.")
+    return payload
 
 
 def describe_playlist_fetch_error(exc: requests.RequestException) -> str:
