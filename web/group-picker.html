@@ -1,0 +1,1120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VOD STRM Builder</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f1115;
+      --panel: #181c22;
+      --panel-2: #202630;
+      --line: #343c49;
+      --text: #eef3f6;
+      --muted: #aab5c0;
+      --blue: #5aa7ff;
+      --green: #46ca83;
+      --red: #ff7070;
+      --focus: #93c8ff;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    button,
+    .file-button {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel-2);
+      color: var(--text);
+      min-height: 36px;
+      padding: 0 12px;
+      cursor: pointer;
+    }
+
+    button:hover,
+    .file-button:hover { border-color: var(--focus); }
+
+    button.primary {
+      border-color: #2f79c7;
+      background: #1f72be;
+    }
+
+    button:disabled {
+      color: #6f7a85;
+      border-color: #2a3038;
+      background: #181b20;
+      cursor: not-allowed;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0d0f13;
+      color: var(--text);
+      outline: none;
+    }
+
+    input,
+    select { min-height: 38px; padding: 0 10px; }
+
+    textarea {
+      min-height: 148px;
+      resize: vertical;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      line-height: 1.45;
+      font-size: 13px;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 2px rgba(147, 200, 255, 0.16);
+    }
+
+    input[type="checkbox"] {
+      width: 18px;
+      min-height: 18px;
+      accent-color: var(--blue);
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: #12161b;
+      padding: 16px 22px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      letter-spacing: 0;
+      line-height: 1.2;
+    }
+
+    h1 { font-size: 20px; }
+    h2 { font-size: 15px; }
+
+    .status {
+      color: var(--muted);
+      font-size: 13px;
+      text-align: right;
+    }
+
+    .status.error { color: var(--red); }
+
+    main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 420px minmax(0, 1fr) 390px;
+    }
+
+    .left,
+    .center,
+    .right {
+      min-height: 0;
+      padding: 16px;
+    }
+
+    .left,
+    .right {
+      background: var(--panel);
+      overflow: auto;
+    }
+
+    .left { border-right: 1px solid var(--line); }
+    .right { border-left: 1px solid var(--line); }
+
+    .center {
+      display: grid;
+      grid-template-rows: auto auto minmax(260px, 1fr);
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    .section {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.015);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .file-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
+
+    .file-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 10px;
+      min-width: 0;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 22px;
+      line-height: 1.15;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .tabs {
+      display: inline-grid;
+      grid-auto-flow: column;
+      gap: 4px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #0d0f13;
+      padding: 4px;
+    }
+
+    .tab {
+      border: 0;
+      min-height: 30px;
+      padding: 0 10px;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .tab.active {
+      background: var(--panel-2);
+      color: var(--text);
+    }
+
+    .table-wrap {
+      min-height: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    thead,
+    tbody tr {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+
+    thead {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #151a20;
+    }
+
+    tbody {
+      display: block;
+      max-height: calc(100vh - 286px);
+      overflow: auto;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 9px;
+      text-align: left;
+      vertical-align: middle;
+      font-size: 13px;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    tr:hover td { background: rgba(255, 255, 255, 0.025); }
+
+    .group-name,
+    .sample {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .group-name {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .sample { color: var(--muted); }
+    .count {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .type-pick {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .pick {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0d0f13;
+      color: var(--muted);
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 12px;
+      user-select: none;
+    }
+
+    .pick input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .pick.movie.on {
+      border-color: var(--blue);
+      color: #d9edff;
+      background: rgba(90, 167, 255, 0.2);
+    }
+
+    .pick.series.on {
+      border-color: var(--green);
+      color: #daf8e7;
+      background: rgba(70, 202, 131, 0.2);
+    }
+
+    .pick.disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .outputs {
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 10px;
+      min-height: 100%;
+    }
+
+    .output-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .output-tabs button {
+      min-height: 32px;
+      padding: 0 8px;
+    }
+
+    .output-tabs button.active {
+      border-color: var(--blue);
+      background: rgba(90, 167, 255, 0.18);
+    }
+
+    .output-box {
+      min-height: 360px;
+      height: 100%;
+      resize: none;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    }
+
+    .muted { color: var(--muted); }
+
+    @media (max-width: 1240px) {
+      main {
+        grid-template-columns: 380px minmax(0, 1fr);
+      }
+
+      .right {
+        grid-column: 1 / -1;
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+    }
+
+    @media (max-width: 860px) {
+      main { grid-template-columns: 1fr; }
+      .left { border-right: 0; border-bottom: 1px solid var(--line); }
+      .center { min-height: 620px; }
+      .grid-2,
+      .grid-3,
+      .summary,
+      .output-tabs { grid-template-columns: 1fr; }
+      header {
+        display: grid;
+        align-items: start;
+      }
+      .status { text-align: left; }
+      tbody { max-height: 430px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>VOD STRM Builder</h1>
+      <div class="status" id="status">Ready</div>
+    </header>
+
+    <main>
+      <aside class="left">
+        <section class="section">
+          <h2>Provider</h2>
+          <label>Server URL
+            <input id="serverUrl" type="url" placeholder="http://provider.example.com">
+          </label>
+          <div class="grid-2">
+            <label>Username
+              <input id="username" type="text" autocomplete="off">
+            </label>
+            <label>Password
+              <input id="password" type="password" autocomplete="off">
+            </label>
+          </div>
+          <label>M3U URL Override
+            <input id="m3uUrl" type="url" placeholder="optional">
+          </label>
+          <label>User Agent
+            <input id="userAgent" type="text" value="vod-strm-builder/0.2">
+          </label>
+          <label class="check-row">
+            <input id="inlineSecrets" type="checkbox">
+            Put secrets directly in config.yml
+          </label>
+        </section>
+
+        <section class="section">
+          <h2>Output</h2>
+          <label>Movies Directory
+            <input id="moviesDir" type="text" value="/mnt/nas/strm/movies">
+          </label>
+          <label>TV Directory
+            <input id="seriesDir" type="text" value="/mnt/nas/strm/tvshows">
+          </label>
+          <div class="grid-2">
+            <label>Selected Groups File
+              <input id="groupsFile" type="text" value="selected-groups.json">
+            </label>
+            <label>Catalog File
+              <input id="catalogFile" type="text" placeholder="optional">
+            </label>
+          </div>
+          <label class="check-row"><input id="appendTmdb" type="checkbox" checked> Append TMDB ID</label>
+          <label class="check-row"><input id="generateNfo" type="checkbox" checked> Generate NFO</label>
+          <label class="check-row"><input id="dryRun" type="checkbox" checked> Dry run</label>
+          <label class="check-row"><input id="cleanOutput" type="checkbox"> Clean output first</label>
+        </section>
+
+        <section class="section">
+          <h2>Series</h2>
+          <label class="check-row"><input id="requireSelectedGroup" type="checkbox" checked> Require selected M3U group</label>
+          <label>Quality Words
+            <input id="qualityWords" type="text" value="4k, uhd, fhd, hd">
+          </label>
+        </section>
+
+        <section class="section">
+          <h2>TMDB</h2>
+          <label class="check-row"><input id="tmdbEnabled" type="checkbox"> Enable lookup fallback</label>
+          <label>API Key
+            <input id="tmdbKey" type="password" autocomplete="off">
+          </label>
+          <div class="grid-2">
+            <label>Language
+              <input id="tmdbLanguage" type="text" value="en-US">
+            </label>
+            <label>Min Score
+              <input id="tmdbMinScore" type="number" min="0" max="1" step="0.01" value="0.58">
+            </label>
+          </div>
+          <label>Cache File
+            <input id="tmdbCache" type="text" value=".tmdb-cache.json">
+          </label>
+          <label class="check-row"><input id="tmdbMissingOnly" type="checkbox" checked> Lookup missing only</label>
+          <label class="check-row"><input id="tmdbFailOnError" type="checkbox"> Fail on TMDB errors</label>
+        </section>
+
+        <section class="section">
+          <h2>Jellyfin</h2>
+          <label class="check-row"><input id="jellyfinEnabled" type="checkbox"> Enable scan</label>
+          <label>Server URL
+            <input id="jellyfinUrl" type="url" placeholder="http://jellyfin.example.com:8096">
+          </label>
+          <label>API Key
+            <input id="jellyfinKey" type="password" autocomplete="off">
+          </label>
+          <label>Library Item IDs
+            <input id="jellyfinItemIds" type="text" placeholder="optional, comma separated">
+          </label>
+          <label class="check-row"><input id="jellyfinScan" type="checkbox" checked> Scan on complete</label>
+        </section>
+      </aside>
+
+      <section class="center">
+        <div class="toolbar">
+          <button id="buildM3uUrl" type="button">Build M3U URL</button>
+          <button id="fetchM3u" type="button">Try Fetch</button>
+          <label class="file-button">Open M3U
+            <input class="file-input" id="fileInput" type="file" accept=".m3u,.m3u8,.txt">
+          </label>
+          <button id="pasteToggle" type="button">Paste</button>
+          <input id="searchInput" type="search" placeholder="Search groups" style="max-width: 260px;">
+        </div>
+
+        <div class="section" id="pastePanel" style="display: none; margin-bottom: 0;">
+          <textarea id="pasteInput" spellcheck="false" placeholder="#EXTM3U"></textarea>
+          <div class="toolbar">
+            <button class="primary" id="parsePaste" type="button">Parse Playlist</button>
+            <button id="clearPaste" type="button">Clear</button>
+          </div>
+        </div>
+
+        <div class="summary">
+          <div class="metric"><strong id="groupCount">0</strong><span>Groups</span></div>
+          <div class="metric"><strong id="movieCount">0</strong><span>Movie Entries</span></div>
+          <div class="metric"><strong id="seriesCount">0</strong><span>Series Entries</span></div>
+          <div class="metric"><strong id="selectedCount">0</strong><span>Selected Groups</span></div>
+        </div>
+
+        <div class="toolbar">
+          <div class="tabs" aria-label="Group filters">
+            <button class="tab active" type="button" data-filter="all">All</button>
+            <button class="tab" type="button" data-filter="movies">Movies</button>
+            <button class="tab" type="button" data-filter="series">Series</button>
+            <button class="tab" type="button" data-filter="selected">Selected</button>
+          </div>
+          <button id="selectVisibleMovies" type="button" disabled>Select Movies</button>
+          <button id="selectVisibleSeries" type="button" disabled>Select Series</button>
+          <button id="clearVisible" type="button" disabled>Clear Visible</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 34%">Group</th>
+                <th style="width: 116px">Use</th>
+                <th style="width: 86px" class="count">Movies</th>
+                <th style="width: 86px" class="count">Series</th>
+                <th style="width: 70px" class="count">Live</th>
+                <th>Sample</th>
+              </tr>
+            </thead>
+            <tbody id="groupRows">
+              <tr><td colspan="6"><div class="muted" style="padding: 34px; text-align: center;">Open or paste a playlist</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <aside class="right">
+        <div class="outputs">
+          <h2>Generated Files</h2>
+          <div class="output-tabs">
+            <button class="active" type="button" data-output="config">config.yml</button>
+            <button type="button" data-output="groups">groups.json</button>
+            <button type="button" data-output="env">.env</button>
+            <button type="button" data-output="command">command</button>
+          </div>
+          <textarea class="output-box" id="outputText" spellcheck="false" readonly></textarea>
+          <div class="toolbar">
+            <button class="primary" id="downloadCurrent" type="button">Download</button>
+            <button id="downloadAll" type="button">Download All</button>
+            <button id="copyCurrent" type="button">Copy</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    const state = {
+      groups: [],
+      selectedMovies: new Set(),
+      selectedSeries: new Set(),
+      filter: "all",
+      search: "",
+      activeOutput: "config",
+    };
+
+    const ids = [
+      "serverUrl", "username", "password", "m3uUrl", "userAgent", "inlineSecrets",
+      "moviesDir", "seriesDir", "groupsFile", "catalogFile", "appendTmdb", "generateNfo",
+      "dryRun", "cleanOutput", "requireSelectedGroup", "qualityWords", "tmdbEnabled",
+      "tmdbKey", "tmdbLanguage", "tmdbMinScore", "tmdbCache", "tmdbMissingOnly",
+      "tmdbFailOnError", "jellyfinEnabled", "jellyfinUrl", "jellyfinKey",
+      "jellyfinItemIds", "jellyfinScan"
+    ];
+    const form = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+    const els = {
+      status: document.getElementById("status"),
+      fileInput: document.getElementById("fileInput"),
+      pastePanel: document.getElementById("pastePanel"),
+      pasteInput: document.getElementById("pasteInput"),
+      pasteToggle: document.getElementById("pasteToggle"),
+      parsePaste: document.getElementById("parsePaste"),
+      clearPaste: document.getElementById("clearPaste"),
+      buildM3uUrl: document.getElementById("buildM3uUrl"),
+      fetchM3u: document.getElementById("fetchM3u"),
+      searchInput: document.getElementById("searchInput"),
+      groupRows: document.getElementById("groupRows"),
+      groupCount: document.getElementById("groupCount"),
+      movieCount: document.getElementById("movieCount"),
+      seriesCount: document.getElementById("seriesCount"),
+      selectedCount: document.getElementById("selectedCount"),
+      selectVisibleMovies: document.getElementById("selectVisibleMovies"),
+      selectVisibleSeries: document.getElementById("selectVisibleSeries"),
+      clearVisible: document.getElementById("clearVisible"),
+      outputText: document.getElementById("outputText"),
+      downloadCurrent: document.getElementById("downloadCurrent"),
+      downloadAll: document.getElementById("downloadAll"),
+      copyCurrent: document.getElementById("copyCurrent"),
+    };
+
+    for (const element of Object.values(form)) {
+      element.addEventListener("input", render);
+      element.addEventListener("change", render);
+    }
+
+    els.fileInput.addEventListener("change", async () => {
+      const file = els.fileInput.files && els.fileInput.files[0];
+      if (!file) return;
+      setStatus(`Reading ${file.name}...`);
+      try {
+        parseAndLoad(await file.text(), file.name);
+      } catch (error) {
+        showError(error);
+      }
+    });
+
+    els.pasteToggle.addEventListener("click", () => {
+      els.pastePanel.style.display = els.pastePanel.style.display === "none" ? "grid" : "none";
+      if (els.pastePanel.style.display === "grid") els.pasteInput.focus();
+    });
+
+    els.parsePaste.addEventListener("click", () => {
+      try {
+        parseAndLoad(els.pasteInput.value, "pasted playlist");
+      } catch (error) {
+        showError(error);
+      }
+    });
+
+    els.clearPaste.addEventListener("click", () => {
+      els.pasteInput.value = "";
+      els.pasteInput.focus();
+    });
+
+    els.buildM3uUrl.addEventListener("click", () => {
+      form.m3uUrl.value = buildM3uUrl();
+      render();
+      setStatus("M3U URL built");
+    });
+
+    els.fetchM3u.addEventListener("click", async () => {
+      const url = form.m3uUrl.value.trim() || buildM3uUrl();
+      if (!url) {
+        showError(new Error("Provider URL, username, and password are required."));
+        return;
+      }
+      setStatus("Fetching playlist...");
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        parseAndLoad(await response.text(), "fetched playlist");
+      } catch (error) {
+        showError(new Error(`Browser fetch failed. Upload or paste the playlist instead. ${error.message || error}`));
+      }
+    });
+
+    els.searchInput.addEventListener("input", () => {
+      state.search = els.searchInput.value.trim().toLowerCase();
+      render();
+    });
+
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
+        tab.classList.add("active");
+        state.filter = tab.dataset.filter;
+        render();
+      });
+    });
+
+    document.querySelectorAll("[data-output]").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll("[data-output]").forEach((item) => item.classList.remove("active"));
+        button.classList.add("active");
+        state.activeOutput = button.dataset.output;
+        render();
+      });
+    });
+
+    els.selectVisibleMovies.addEventListener("click", () => {
+      visibleGroups().forEach((group) => {
+        if (group.movieCount > 0) state.selectedMovies.add(group.name);
+      });
+      render();
+    });
+
+    els.selectVisibleSeries.addEventListener("click", () => {
+      visibleGroups().forEach((group) => {
+        if (group.seriesCount > 0) state.selectedSeries.add(group.name);
+      });
+      render();
+    });
+
+    els.clearVisible.addEventListener("click", () => {
+      visibleGroups().forEach((group) => {
+        state.selectedMovies.delete(group.name);
+        state.selectedSeries.delete(group.name);
+      });
+      render();
+    });
+
+    els.downloadCurrent.addEventListener("click", () => {
+      downloadText(outputName(state.activeOutput), outputValue(state.activeOutput));
+    });
+
+    els.downloadAll.addEventListener("click", () => {
+      for (const key of ["config", "groups", "env", "command"]) {
+        downloadText(outputName(key), outputValue(key));
+      }
+    });
+
+    els.copyCurrent.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(outputValue(state.activeOutput));
+        setStatus("Copied");
+      } catch {
+        els.outputText.select();
+        document.execCommand("copy");
+        setStatus("Copied");
+      }
+    });
+
+    function parseAndLoad(text, sourceName) {
+      state.groups = parsePlaylist(text);
+      state.selectedMovies = new Set();
+      state.selectedSeries = new Set();
+      state.search = "";
+      els.searchInput.value = "";
+      setStatus(`${sourceName}: ${state.groups.length.toLocaleString()} groups`);
+      render();
+    }
+
+    function parsePlaylist(text) {
+      if (!text || !text.trim()) throw new Error("Playlist is empty.");
+      const groupMap = new Map();
+      const lines = text.split(/\r?\n/);
+      let pending = null;
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        if (line.startsWith("#EXTINF")) {
+          pending = {
+            attrs: parseAttrs(line),
+            title: line.includes(",") ? line.slice(line.indexOf(",") + 1).trim() : "",
+          };
+          continue;
+        }
+        if (line.startsWith("#") || !pending) continue;
+
+        const groupName = (pending.attrs["group-title"] || "Ungrouped").trim() || "Ungrouped";
+        const title = pending.attrs["tvg-name"] || pending.title || line;
+        const kind = classifyUrl(line);
+        const group = ensureGroup(groupMap, groupName);
+        group.total += 1;
+        group.samples.add(title);
+        if (kind === "movie") group.movieCount += 1;
+        else if (kind === "series") group.seriesCount += 1;
+        else group.liveCount += 1;
+        pending = null;
+      }
+
+      return Array.from(groupMap.values()).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+    }
+
+    function parseAttrs(extinf) {
+      const attrs = {};
+      const pattern = /([\w-]+)="([^"]*)"/g;
+      let match;
+      while ((match = pattern.exec(extinf)) !== null) attrs[match[1]] = match[2];
+      return attrs;
+    }
+
+    function classifyUrl(url) {
+      const lower = url.toLowerCase();
+      if (lower.includes("/movie/")) return "movie";
+      if (lower.includes("/series/")) return "series";
+      return "live";
+    }
+
+    function ensureGroup(groupMap, name) {
+      if (!groupMap.has(name)) {
+        groupMap.set(name, {
+          name,
+          movieCount: 0,
+          seriesCount: 0,
+          liveCount: 0,
+          total: 0,
+          samples: new Set(),
+        });
+      }
+      return groupMap.get(name);
+    }
+
+    function visibleGroups() {
+      return state.groups.filter((group) => {
+        if (state.search && !group.name.toLowerCase().includes(state.search)) return false;
+        if (state.filter === "movies" && group.movieCount <= 0) return false;
+        if (state.filter === "series" && group.seriesCount <= 0) return false;
+        if (state.filter === "selected" && !state.selectedMovies.has(group.name) && !state.selectedSeries.has(group.name)) return false;
+        return true;
+      });
+    }
+
+    function render() {
+      renderSummary();
+      renderRows();
+      els.outputText.value = outputValue(state.activeOutput);
+    }
+
+    function renderSummary() {
+      const totalMovies = state.groups.reduce((sum, group) => sum + group.movieCount, 0);
+      const totalSeries = state.groups.reduce((sum, group) => sum + group.seriesCount, 0);
+      const selected = new Set([...state.selectedMovies, ...state.selectedSeries]);
+      els.groupCount.textContent = state.groups.length.toLocaleString();
+      els.movieCount.textContent = totalMovies.toLocaleString();
+      els.seriesCount.textContent = totalSeries.toLocaleString();
+      els.selectedCount.textContent = selected.size.toLocaleString();
+    }
+
+    function renderRows() {
+      const rows = visibleGroups();
+      const hasGroups = state.groups.length > 0;
+      els.selectVisibleMovies.disabled = rows.length === 0;
+      els.selectVisibleSeries.disabled = rows.length === 0;
+      els.clearVisible.disabled = rows.length === 0;
+      if (!hasGroups) {
+        els.groupRows.innerHTML = '<tr><td colspan="6"><div class="muted" style="padding: 34px; text-align: center;">Open or paste a playlist</div></td></tr>';
+        return;
+      }
+      if (rows.length === 0) {
+        els.groupRows.innerHTML = '<tr><td colspan="6"><div class="muted" style="padding: 34px; text-align: center;">No matching groups</div></td></tr>';
+        return;
+      }
+      els.groupRows.replaceChildren(...rows.map(renderRow));
+    }
+
+    function renderRow(group) {
+      const tr = document.createElement("tr");
+      tr.append(
+        cell(group.name, "group-name"),
+        selectorCell(group),
+        cell(group.movieCount.toLocaleString(), "count"),
+        cell(group.seriesCount.toLocaleString(), "count"),
+        cell(group.liveCount.toLocaleString(), "count"),
+        cell(Array.from(group.samples).slice(0, 3).join(" | "), "sample")
+      );
+      return tr;
+    }
+
+    function selectorCell(group) {
+      const td = document.createElement("td");
+      const wrap = document.createElement("div");
+      wrap.className = "type-pick";
+      wrap.append(pick(group, "movie"), pick(group, "series"));
+      td.append(wrap);
+      return td;
+    }
+
+    function pick(group, kind) {
+      const set = kind === "movie" ? state.selectedMovies : state.selectedSeries;
+      const count = kind === "movie" ? group.movieCount : group.seriesCount;
+      const label = document.createElement("label");
+      label.className = `pick ${kind}${set.has(group.name) ? " on" : ""}${count <= 0 ? " disabled" : ""}`;
+      label.title = kind === "movie" ? "Movie group" : "Series group";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = set.has(group.name);
+      input.disabled = count <= 0;
+      input.addEventListener("change", () => {
+        if (input.checked) set.add(group.name);
+        else set.delete(group.name);
+        render();
+      });
+      label.append(input, document.createTextNode(kind === "movie" ? "M" : "S"));
+      return label;
+    }
+
+    function cell(value, className) {
+      const td = document.createElement("td");
+      td.className = className || "";
+      td.textContent = value;
+      td.title = String(value);
+      return td;
+    }
+
+    function selectedGroupsPayload() {
+      return {
+        movie_groups: Array.from(state.selectedMovies).sort(localeSort),
+        series_groups: Array.from(state.selectedSeries).sort(localeSort),
+        movie_category_ids: [],
+        series_category_ids: [],
+      };
+    }
+
+    function configYaml() {
+      const inline = form.inlineSecrets.checked;
+      const lines = [];
+      lines.push("provider:");
+      lines.push(`  server_url: ${yamlString(form.serverUrl.value.trim())}`);
+      if (inline) {
+        lines.push(`  username: ${yamlString(form.username.value)}`);
+        lines.push(`  password: ${yamlString(form.password.value)}`);
+      } else {
+        lines.push('  username_env: "XTREAM_USERNAME"');
+        lines.push('  password_env: "XTREAM_PASSWORD"');
+      }
+      if (form.m3uUrl.value.trim()) {
+        if (inline) lines.push(`  m3u_url: ${yamlString(form.m3uUrl.value.trim())}`);
+        else lines.push('  m3u_url_env: "XTREAM_M3U_URL"');
+      }
+      lines.push(`  user_agent: ${yamlString(form.userAgent.value.trim() || "vod-strm-builder/0.2")}`);
+      lines.push("");
+      lines.push(`selected_groups_file: ${yamlString(form.groupsFile.value.trim() || "selected-groups.json")}`);
+      if (form.catalogFile.value.trim()) lines.push(`catalog_file: ${yamlString(form.catalogFile.value.trim())}`);
+      lines.push("");
+      lines.push("output:");
+      lines.push(`  movies_dir: ${yamlString(form.moviesDir.value.trim())}`);
+      lines.push(`  series_dir: ${yamlString(form.seriesDir.value.trim())}`);
+      lines.push(`  append_tmdb_id: ${bool(form.appendTmdb.checked)}`);
+      lines.push(`  generate_nfo: ${bool(form.generateNfo.checked)}`);
+      lines.push(`  clean: ${bool(form.cleanOutput.checked)}`);
+      lines.push(`  dry_run: ${bool(form.dryRun.checked)}`);
+      lines.push("");
+      lines.push("filters:");
+      lines.push("  movie_groups: []");
+      lines.push("  series_groups: []");
+      lines.push("  movie_category_ids: []");
+      lines.push("  series_category_ids: []");
+      lines.push("");
+      lines.push("series:");
+      lines.push('  source: "m3u"');
+      lines.push(`  require_selected_m3u_group: ${bool(form.requireSelectedGroup.checked)}`);
+      lines.push(`  quality_words: [${csv(form.qualityWords.value).map(yamlString).join(", ")}]`);
+      lines.push("");
+      lines.push("tmdb:");
+      lines.push(`  enabled: ${bool(form.tmdbEnabled.checked)}`);
+      if (inline && form.tmdbKey.value) lines.push(`  api_key: ${yamlString(form.tmdbKey.value)}`);
+      else lines.push('  api_key_env: "TMDB_API_KEY"');
+      lines.push(`  language: ${yamlString(form.tmdbLanguage.value.trim() || "en-US")}`);
+      if (form.tmdbCache.value.trim()) lines.push(`  cache_file: ${yamlString(form.tmdbCache.value.trim())}`);
+      lines.push(`  lookup_missing_only: ${bool(form.tmdbMissingOnly.checked)}`);
+      lines.push(`  min_score: ${Number(form.tmdbMinScore.value || 0.58)}`);
+      lines.push(`  fail_on_error: ${bool(form.tmdbFailOnError.checked)}`);
+      lines.push("");
+      lines.push("jellyfin:");
+      lines.push(`  enabled: ${bool(form.jellyfinEnabled.checked)}`);
+      if (form.jellyfinUrl.value.trim()) lines.push(`  server_url: ${yamlString(form.jellyfinUrl.value.trim())}`);
+      if (inline && form.jellyfinKey.value) lines.push(`  api_key: ${yamlString(form.jellyfinKey.value)}`);
+      else lines.push('  api_key_env: "JELLYFIN_API_KEY"');
+      lines.push(`  scan_on_complete: ${bool(form.jellyfinScan.checked)}`);
+      lines.push(`  library_item_ids: [${csv(form.jellyfinItemIds.value).map(yamlString).join(", ")}]`);
+      return lines.join("\n") + "\n";
+    }
+
+    function envText() {
+      const pairs = [
+        ["XTREAM_USERNAME", form.username.value],
+        ["XTREAM_PASSWORD", form.password.value],
+      ];
+      if (form.m3uUrl.value.trim()) pairs.push(["XTREAM_M3U_URL", form.m3uUrl.value.trim()]);
+      if (form.tmdbKey.value) pairs.push(["TMDB_API_KEY", form.tmdbKey.value]);
+      if (form.jellyfinKey.value) pairs.push(["JELLYFIN_API_KEY", form.jellyfinKey.value]);
+      return pairs.map(([key, value]) => `${key}=${shellQuote(value)}`).join("\n") + "\n";
+    }
+
+    function commandText() {
+      return [
+        "python3 -m venv .venv",
+        ". .venv/bin/activate",
+        "pip install -e .",
+        "set -a",
+        ". ./.env",
+        "set +a",
+        "vod-strm-builder generate --config config.yml --summary-json last-run.json",
+      ].join("\n") + "\n";
+    }
+
+    function outputValue(key) {
+      if (key === "groups") return JSON.stringify(selectedGroupsPayload(), null, 2) + "\n";
+      if (key === "env") return envText();
+      if (key === "command") return commandText();
+      return configYaml();
+    }
+
+    function outputName(key) {
+      if (key === "groups") return form.groupsFile.value.trim() || "selected-groups.json";
+      if (key === "env") return ".env";
+      if (key === "command") return "run-vod-strm-builder.sh";
+      return "config.yml";
+    }
+
+    function buildM3uUrl() {
+      const base = form.serverUrl.value.trim().replace(/\/+$/, "");
+      const user = form.username.value;
+      const pass = form.password.value;
+      if (!base || !user || !pass) return "";
+      return `${base}/get.php?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}&type=m3u_plus&output=ts`;
+    }
+
+    function yamlString(value) {
+      return JSON.stringify(String(value ?? ""));
+    }
+
+    function shellQuote(value) {
+      return `'${String(value ?? "").replace(/'/g, "'\"'\"'")}'`;
+    }
+
+    function csv(value) {
+      return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+    }
+
+    function bool(value) {
+      return value ? "true" : "false";
+    }
+
+    function localeSort(a, b) {
+      return a.localeCompare(b, undefined, {numeric: true});
+    }
+
+    function downloadText(name, text) {
+      const blob = new Blob([text], {type: "text/plain;charset=utf-8"});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function setStatus(message) {
+      els.status.textContent = message;
+      els.status.classList.remove("error");
+    }
+
+    function showError(error) {
+      els.status.textContent = error instanceof Error ? error.message : String(error);
+      els.status.classList.add("error");
+    }
+
+    render();
+  </script>
+</body>
+</html>

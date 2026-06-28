@@ -73,6 +73,19 @@ jellyfin:
   scan_on_complete: true
 ```
 
+## Browser Config Builder
+
+Open [web/group-picker.html](web/group-picker.html) in a browser to build the generator files from a single page.
+
+The page lets you enter provider settings, output paths, TMDB/Jellyfin options, load or paste an M3U playlist, select movie and series groups, then download:
+
+- `config.yml`
+- `selected-groups.json`
+- `.env`
+- `run-vod-strm-builder.sh`
+
+Browser security may block direct playlist fetching from some providers. In that case, download the M3U in the browser and open the file in the page, or paste the playlist text.
+
 ## Selected Groups And Catalog
 
 The selected groups file is a JSON object with group/category names or category IDs:
