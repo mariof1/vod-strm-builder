@@ -5,15 +5,31 @@ import yaml
 
 from vod_strm_builder.cli import existing_tmdb_stats, generate
 from vod_strm_builder.m3u import _parse_episode_title, scan_m3u_groups
-from vod_strm_builder.utils import clean_title, folder_name
+from vod_strm_builder.utils import clean_title, extract_year, folder_name
 
 
 def test_clean_title_strips_provider_prefix():
     assert clean_title("EN - The Matrix (1999)") == "The Matrix (1999)"
 
 
+def test_clean_title_removes_provider_quality_and_subtitle_noise():
+    assert clean_title("NF - Under Paris 4K (2024)") == "Under Paris (2024)"
+    assert clean_title("EN - Outcome (2026) (MULTI SUB)") == "Outcome (2026)"
+    assert clean_title("A+ - Finch (2021) TOM HANKS") == "Finch (2021)"
+    assert clean_title("D+ - Sea Lions Of The Galapagos (2025)") == "Sea Lions Of The Galapagos (2025)"
+
+
+def test_extract_year_finds_year_before_provider_noise():
+    assert extract_year("NF - Beverly Hills Cop: Axel F 4K (2024) EDDIE MURPHY") == 2024
+
+
 def test_folder_name_appends_tmdb_suffix():
     assert folder_name("EN - The Matrix (1999)", 1999, "603", True) == "The Matrix (1999) {tmdb-603}"
+
+
+def test_folder_name_uses_clean_movie_title_and_year():
+    assert folder_name("NF - Under Paris 4K (2024)", 2024, None, False) == "Under Paris (2024)"
+    assert folder_name("A+ - Finch (2021) TOM HANKS", 2021, None, False) == "Finch (2021)"
 
 
 def test_parse_episode_title():
