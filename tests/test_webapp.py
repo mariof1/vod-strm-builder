@@ -65,6 +65,41 @@ def test_build_config_accepts_api_series_source(tmp_path: Path):
     assert config["series"]["source"] == "api"
 
 
+def test_api_source_run_ignores_cached_m3u(tmp_path: Path):
+    state = AppState(tmp_path)
+    state.write_and_scan_playlist(
+        "\n".join(
+            [
+                "#EXTM3U",
+                '#EXTINF:-1 group-title="Movies" tvg-name="Film",Film',
+                "http://provider.example.com/movie/user/pass/1.mp4",
+            ]
+        ),
+        "main",
+    )
+
+    runs = state.build_provider_runs(
+        {
+            "providers": [
+                {
+                    "id": "main",
+                    "name": "Main",
+                    "server_url": "http://provider.example.com",
+                    "username": "user",
+                    "password": "secret",
+                    "source": "xtream_api",
+                    "series_source": "api",
+                }
+            ],
+            "movies_dir": "/media/movies",
+            "series_dir": "/media/tvshows",
+        },
+        {"providers": {"main": {"movie_groups": ["Movies"]}}},
+    )
+
+    assert runs[0]["playlist_cache"] is None
+
+
 def test_describe_playlist_fetch_error_hides_url():
     response = requests.Response()
     response.status_code = 403
@@ -273,6 +308,56 @@ def test_fetch_playlist_uses_cached_m3u_when_live_fetch_fails(tmp_path: Path, mo
     assert data["playlist_cached"] is True
     assert data["source"] == "m3u"
     assert "using cached playlist" in data["warning"]
+
+
+def test_fetch_playlist_rejects_movie_empty_m3u_and_uses_xtream_api(tmp_path: Path, monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def raise_for_status(self):
+            return None
+
+        def iter_lines(self, decode_unicode=True):
+            yield '#EXTINF:-1 group-title="Shows" tvg-name="Show S01E01",Show S01E01'
+            yield "http://provider.example.com/series/user/pass/1.ts"
+
+    def fake_xtream_groups(self, settings):
+        return [
+            {"name": "Movies", "movie_count": 2, "series_count": 0, "live_count": 0, "total": 2, "samples": ["Film"]},
+        ]
+
+    monkeypatch.setattr("vod_strm_builder.webapp.requests.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(AppState, "fetch_xtream_groups", fake_xtream_groups)
+    app = create_app(tmp_path)
+
+    response = app.test_client().post(
+        "/api/playlist/fetch",
+        json={
+            "providers": [
+                {
+                    "id": "main",
+                    "name": "Main",
+                    "server_url": "http://provider.example.com",
+                    "username": "user",
+                    "password": "secret",
+                    "m3u_url": "http://provider.example.com/get.php?username=user&password=secret",
+                }
+            ],
+            "selected_groups": {"providers": {"main": {"movie_groups": ["Movies"]}}},
+        },
+    )
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert data["source"] == "xtream_api"
+    assert data["stats"]["movie_entries"] == 2
+    assert data["groups"][0]["provider_source"] == "xtream_api"
+    assert "M3U refresh had no movies" in data["warning"]
+    assert not (tmp_path / "playlists" / "main.m3u").exists()
 
 
 def test_multi_provider_selection_is_split_by_provider():

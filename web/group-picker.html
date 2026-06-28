@@ -1238,7 +1238,10 @@
 
     async function syncProviderPlaylists(statusText, sourceName) {
       const data = await withProgress(statusText, async () => {
-        return apiJson("/api/playlist/fetch", settingsPayload());
+        return apiJson("/api/playlist/fetch", {
+          ...settingsPayload(),
+          selected_groups: selectedGroupsPayload(),
+        });
       }, "Playlist synced");
       if (data) {
         loadGroups(data, sourceName);
@@ -1254,6 +1257,7 @@
         password: overrides.password || "",
         m3u_url: overrides.m3u_url || "",
         user_agent: overrides.user_agent || "TiviMate/5.1.6 (Android 12)",
+        source: overrides.source || overrides.catalog_source || "m3u",
         series_source: overrides.series_source || "m3u",
       };
     }
@@ -1332,16 +1336,21 @@
     }
 
     function providersPayload() {
-      return state.providers.map((provider) => ({
-        id: provider.id,
-        name: provider.name || "Provider",
-        server_url: provider.server_url || "",
-        username: provider.username || "",
-        password: provider.password || "",
-        m3u_url: provider.m3u_url || "",
-        user_agent: provider.user_agent || "TiviMate/5.1.6 (Android 12)",
-        series_source: state.providerSources.get(provider.id) === "xtream_api" ? "api" : (provider.series_source || "m3u"),
-      }));
+      return state.providers.map((provider) => {
+        const source = state.providerSources.get(provider.id) || provider.source || "m3u";
+        return {
+          id: provider.id,
+          name: provider.name || "Provider",
+          server_url: provider.server_url || "",
+          username: provider.username || "",
+          password: provider.password || "",
+          m3u_url: provider.m3u_url || "",
+          user_agent: provider.user_agent || "TiviMate/5.1.6 (Android 12)",
+          source,
+          catalog_source: source,
+          series_source: source === "xtream_api" ? "api" : (provider.series_source || "m3u"),
+        };
+      });
     }
 
     function settingsPayload() {
@@ -1829,8 +1838,10 @@
         password: provider.password || "",
         m3u_url: provider.m3u_url || "",
         user_agent: provider.user_agent || "TiviMate/5.1.6 (Android 12)",
+        source: provider.source || provider.catalog_source || (provider.series_source === "api" ? "xtream_api" : "m3u"),
         series_source: provider.series_source || settings.series_source || "m3u",
       }));
+      state.providerSources = new Map(state.providers.map((provider) => [provider.id, provider.source || "m3u"]));
       state.activeProviderId = settings.active_provider_id || state.providers[0].id;
       ensureProvider();
       applyProviderToForm(activeProvider());

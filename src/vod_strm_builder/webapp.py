@@ -32,6 +32,12 @@ logging.basicConfig(
 LOG = logging.getLogger(__name__)
 
 
+class PlaylistRefreshRejected(RuntimeError):
+    def __init__(self, message: str, groups: list[dict[str, object]]) -> None:
+        super().__init__(message)
+        self.groups = groups
+
+
 def create_app(work_dir: Path | None = None) -> Flask:
     app = Flask(__name__)
     state = AppState(work_dir or Path(os.environ.get("VSB_WORK_DIR", "/work")))
@@ -74,6 +80,10 @@ def create_app(work_dir: Path | None = None) -> Flask:
             if not providers:
                 raise ValueError("Provider URL, username, and password are required.")
 
+            stored = state.load_settings()
+            stored_selected = stored.get("selected_groups") if isinstance(stored.get("selected_groups"), dict) else {}
+            selected_groups = payload.get("selected_groups") if isinstance(payload.get("selected_groups"), dict) else stored_selected
+            selected_by_provider = selected_groups_by_provider(selected_groups or {}, providers)
             all_groups: list[dict[str, object]] = []
             playlist_cached = True
             sources: set[str] = set()
@@ -85,16 +95,38 @@ def create_app(work_dir: Path | None = None) -> Flask:
                 if not url:
                     raise ValueError(f"Provider {provider_name} is missing an M3U URL or URL credentials.")
                 LOG.info("fetching playlist groups provider=%s url=%s", provider_name, redact_url(url))
+                prefer_movies = bool(selected_by_provider.get(provider_id, {}).get("movie_groups"))
                 try:
                     groups = state.fetch_and_scan_playlist(
                         url,
                         str(provider.get("user_agent") or DEFAULT_USER_AGENT),
                         provider_id,
+                        reject_without_movies=prefer_movies,
                     )
                     source = "m3u"
+                except PlaylistRefreshRejected as playlist_exc:
+                    LOG.warning("m3u refresh rejected provider=%s error=%s", provider_name, playlist_exc)
+                    warnings.append(f"{provider_name}: {playlist_exc}")
+                    try:
+                        groups = state.fetch_xtream_groups(provider)
+                        if prefer_movies and group_entry_total(groups, "movie_count") == 0:
+                            raise RuntimeError("Xtream API returned no movie groups.")
+                        playlist_cached = False
+                        source = "xtream_api"
+                        warnings.append(f"{provider_name}: M3U refresh had no movies; using Xtream API groups.")
+                    except Exception as api_exc:
+                        cached_groups = state.scan_cached_playlist_if_available(provider_id, require_movies=prefer_movies)
+                        if cached_groups is not None:
+                            groups = cached_groups
+                            source = "m3u"
+                            warnings.append(f"{provider_name}: Xtream API fallback failed; keeping cached playlist. {api_exc}")
+                        else:
+                            groups = playlist_exc.groups
+                            source = "m3u"
+                            warnings.append(f"{provider_name}: Xtream API fallback failed; showing the movie-empty playlist. {api_exc}")
                 except Exception as playlist_exc:
                     LOG.warning("m3u fetch failed provider=%s error=%s", provider_name, playlist_exc)
-                    cached_groups = state.scan_cached_playlist_if_available(provider_id)
+                    cached_groups = state.scan_cached_playlist_if_available(provider_id, require_movies=prefer_movies)
                     if cached_groups is not None:
                         groups = cached_groups
                         source = "m3u"
@@ -286,13 +318,20 @@ class AppState:
         safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in provider_id).strip("_")
         return self.playlists_dir / f"{safe or 'default'}.m3u"
 
-    def fetch_and_scan_playlist(self, url: str, user_agent: str, provider_id: str = "default") -> list[dict[str, object]]:
+    def fetch_and_scan_playlist(
+        self,
+        url: str,
+        user_agent: str,
+        provider_id: str = "default",
+        reject_without_movies: bool = False,
+    ) -> list[dict[str, object]]:
         headers = {"User-Agent": user_agent}
         playlist_cache = self.playlist_cache_for(provider_id)
+        temp_cache = playlist_cache.with_name(f".{playlist_cache.name}.{uuid.uuid4().hex}.tmp")
         try:
             with requests.get(url, stream=True, timeout=(20, 240), headers=headers) as response:
                 response.raise_for_status()
-                with playlist_cache.open("w", encoding="utf-8", errors="replace", newline="\n") as fh:
+                with temp_cache.open("w", encoding="utf-8", errors="replace", newline="\n") as fh:
 
                     def lines():
                         for line in response.iter_lines(decode_unicode=True):
@@ -300,9 +339,29 @@ class AppState:
                             fh.write(text + "\n")
                             yield text
 
-                    return [group.to_dict() for group in scan_m3u_groups(lines())]
+                    groups = [group.to_dict() for group in scan_m3u_groups(lines())]
+                movie_entries = group_entry_total(groups, "movie_count")
+                if movie_entries == 0 and reject_without_movies:
+                    raise PlaylistRefreshRejected(
+                        "playlist refresh returned no movie entries while movie groups are selected",
+                        groups,
+                    )
+                if movie_entries == 0 and self.cached_playlist_has_movies(provider_id):
+                    raise PlaylistRefreshRejected(
+                        "playlist refresh returned no movie entries; keeping the existing movie-capable cache",
+                        groups,
+                    )
+                temp_cache.replace(playlist_cache)
+                return groups
+        except PlaylistRefreshRejected:
+            temp_cache.unlink(missing_ok=True)
+            raise
         except requests.RequestException as exc:
+            temp_cache.unlink(missing_ok=True)
             raise RuntimeError(describe_playlist_fetch_error(exc)) from None
+        except Exception:
+            temp_cache.unlink(missing_ok=True)
+            raise
 
     def fetch_xtream_groups(self, settings: dict[str, Any]) -> list[dict[str, object]]:
         client = XtreamClient(provider_from_settings(settings), timeout=120)
@@ -330,12 +389,30 @@ class AppState:
         with self.playlist_cache_for(provider_id).open("r", encoding="utf-8", errors="replace") as fh:
             return [group.to_dict() for group in scan_m3u_groups(fh)]
 
-    def scan_cached_playlist_if_available(self, provider_id: str = "default") -> list[dict[str, object]] | None:
+    def scan_cached_playlist_if_available(
+        self,
+        provider_id: str = "default",
+        require_movies: bool = False,
+    ) -> list[dict[str, object]] | None:
         playlist_cache = self.playlist_cache_for(provider_id)
         if not playlist_cache.exists():
             return None
         LOG.info("using cached playlist after live fetch failure path=%s", playlist_cache)
-        return self.scan_cached_playlist(provider_id)
+        groups = self.scan_cached_playlist(provider_id)
+        if require_movies and group_entry_total(groups, "movie_count") == 0:
+            LOG.warning("cached playlist ignored because it has no movie entries path=%s", playlist_cache)
+            return None
+        return groups
+
+    def cached_playlist_has_movies(self, provider_id: str = "default") -> bool:
+        playlist_cache = self.playlist_cache_for(provider_id)
+        if not playlist_cache.exists():
+            return False
+        try:
+            return group_entry_total(self.scan_cached_playlist(provider_id), "movie_count") > 0
+        except OSError as exc:
+            LOG.warning("could not inspect cached playlist path=%s error=%s", playlist_cache, exc)
+            return False
 
     def start_job(self, payload: dict[str, Any]) -> "Job":
         settings = dict(payload.get("settings") or {})
@@ -381,13 +458,15 @@ class AppState:
             playlist_cache = self.playlist_cache_for(provider_id)
             if not playlist_cache.exists() and self.playlist_cache.exists() and provider_id == "default":
                 playlist_cache = self.playlist_cache
+            if provider_catalog_source(provider_settings) == "xtream_api":
+                playlist_cache = None
             run = {
                 "provider_id": provider_id,
                 "provider_name": provider_name,
                 "settings": provider_settings,
                 "selected_groups": provider_selected,
                 "groups_path": groups_path,
-                "playlist_cache": playlist_cache if playlist_cache.exists() else None,
+                "playlist_cache": playlist_cache if playlist_cache is not None and playlist_cache.exists() else None,
                 "clean_output": as_bool(provider_settings.get("clean_output")) and index == 0,
             }
             runs.append(run)
@@ -619,9 +698,9 @@ def group_response(
     source: str = "m3u",
     warning: str | None = None,
 ) -> dict[str, object]:
-    movie_total = sum(int(group["movie_count"]) for group in groups)
-    series_total = sum(int(group["series_count"]) for group in groups)
-    live_total = sum(int(group["live_count"]) for group in groups)
+    movie_total = group_entry_total(groups, "movie_count")
+    series_total = group_entry_total(groups, "series_count")
+    live_total = group_entry_total(groups, "live_count")
     payload: dict[str, object] = {
         "groups": groups,
         "playlist_cached": playlist_cached,
@@ -638,6 +717,16 @@ def group_response(
     return payload
 
 
+def group_entry_total(groups: list[dict[str, object]], key: str) -> int:
+    total = 0
+    for group in groups:
+        try:
+            total += int(group.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
 def settings_providers(settings: dict[str, Any]) -> list[dict[str, Any]]:
     raw_providers = settings.get("providers")
     if isinstance(raw_providers, list):
@@ -652,6 +741,9 @@ def settings_providers(settings: dict[str, Any]) -> list[dict[str, Any]]:
                 "password": settings.get("password"),
                 "m3u_url": settings.get("m3u_url"),
                 "user_agent": settings.get("user_agent"),
+                "source": settings.get("source"),
+                "catalog_source": settings.get("catalog_source"),
+                "series_source": settings.get("series_source"),
             }
         ]
     normalized: list[dict[str, Any]] = []
@@ -664,6 +756,12 @@ def settings_providers(settings: dict[str, Any]) -> list[dict[str, Any]]:
         item["password"] = clean_string(item.get("password"))
         item["m3u_url"] = clean_string(item.get("m3u_url"))
         item["user_agent"] = clean_string(item.get("user_agent")) or DEFAULT_USER_AGENT
+        source = clean_string(item.get("source")) or clean_string(item.get("catalog_source"))
+        if source not in {"m3u", "xtream_api"}:
+            source = ""
+        item["source"] = source or "m3u"
+        item["catalog_source"] = item["source"]
+        item["series_source"] = clean_string(item.get("series_source")) or ("api" if item["source"] == "xtream_api" else "m3u")
         if any(item.get(key) for key in ("server_url", "username", "password", "m3u_url")):
             normalized.append(item)
     return normalized
@@ -692,6 +790,11 @@ def provider_identifier(provider: dict[str, Any]) -> str:
 
 def provider_label(provider: dict[str, Any]) -> str:
     return clean_string(provider.get("name")) or clean_string(provider.get("server_url")) or provider_identifier(provider)
+
+
+def provider_catalog_source(settings: dict[str, Any]) -> str:
+    source = clean_string(settings.get("catalog_source")) or clean_string(settings.get("source"))
+    return source if source in {"m3u", "xtream_api"} else "m3u"
 
 
 def tag_groups(
