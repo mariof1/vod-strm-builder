@@ -45,7 +45,7 @@ provider:
   username_env: "XTREAM_USERNAME"
   password_env: "XTREAM_PASSWORD"
 
-selected_groups_file: "selected-groups.dispatcharr.json"
+selected_groups_file: "selected-groups.json"
 
 output:
   movies_dir: "/mnt/nas/strm/movies"
@@ -73,29 +73,50 @@ jellyfin:
   scan_on_complete: true
 ```
 
-## Export Selected Dispatcharr Groups
+## Selected Groups And Catalog
 
-This is a one-time bridge from your existing Dispatcharr choices into this standalone tool.
+The selected groups file is a JSON object with group/category names or category IDs:
 
-From the Docker host running Dispatcharr:
-
-```bash
-docker cp tools/export_dispatcharr_vod_groups.py dispatcharr:/tmp/export_dispatcharr_vod_groups.py
-docker exec dispatcharr sh -lc "/dispatcharrpy/bin/python /app/manage.py shell < /tmp/export_dispatcharr_vod_groups.py" > selected-groups.dispatcharr.json
+```json
+{
+  "movie_groups": ["|EN| ACTION/THRILLER", "|EN| NEW RELEASED"],
+  "series_groups": ["|EN| NETFLIX", "|EN| TOP SERIES"],
+  "movie_category_ids": [],
+  "series_category_ids": []
+}
 ```
 
-If Django startup logs appear before the JSON, remove those log lines so the file starts with `{`.
+Group/category names should match the names from the provider. Category IDs are also supported if you prefer stable numeric IDs.
 
-The generated file contains only group/category names and IDs, not provider credentials.
+An optional catalog file can be used when you already have a curated list of movie and series metadata. Set `catalog_file: "selected-catalog.json"` in `config.yml`. With this enabled, the generator uses that file for title, year, stream ID, and TMDB metadata, then uses the M3U playlist for episode URLs.
 
-For the more robust runtime path, export the selected VOD catalogue too:
+The catalog JSON shape is:
 
-```bash
-docker cp tools/export_dispatcharr_vod_catalog.py dispatcharr:/tmp/export_dispatcharr_vod_catalog.py
-docker exec dispatcharr sh -lc "/dispatcharrpy/bin/python /app/manage.py shell < /tmp/export_dispatcharr_vod_catalog.py" > selected-catalog.dispatcharr.json
+```json
+{
+  "metadata": {"source": "example"},
+  "movies": [
+    {
+      "name": "The Matrix",
+      "stream_id": "12345",
+      "category_id": "10",
+      "extension": "mp4",
+      "year": 1999,
+      "tmdb_id": "603",
+      "imdb_id": "tt0133093"
+    }
+  ],
+  "series": [
+    {
+      "name": "Example Show",
+      "series_id": "67890",
+      "category_id": "20",
+      "year": 2024,
+      "tmdb_id": "123456"
+    }
+  ]
+}
 ```
-
-Set `catalog_file: "selected-catalog.dispatcharr.json"` in `config.yml`. With this enabled, the generator uses Dispatcharr's exported provider metadata, including TMDB IDs, and skips Xtream catalogue API calls at runtime.
 
 ## Generate
 
@@ -109,9 +130,9 @@ Use `clean: true` only when the output paths are dedicated to generated STRM/NFO
 
 ## TMDB IDs
 
-The normal Dispatcharr-compatible path does not need a TMDB API key. VOD2MLIB appends `{tmdb-NNN}` from the `tmdb_id` already stored on the Dispatcharr movie or series object. Dispatcharr fills that field from the provider catalogue fields named `tmdb` or `tmdb_id`.
+The normal path does not need a TMDB API key. The tool appends `{tmdb-NNN}` from a known `tmdb_id` in the provider data or optional catalog file.
 
-This tool does the same when `catalog_file: "selected-catalog.dispatcharr.json"` is set, or when it reads provider catalogue data directly. The run summary reports:
+The run summary reports:
 
 - `movies_with_provider_tmdb_id`
 - `series_with_provider_tmdb_id`

@@ -9,10 +9,10 @@ provider:
   # m3u_file: "/srv/cache/provider.m3u"
   user_agent: "vod-strm-builder/0.2"
 
-selected_groups_file: "selected-groups.dispatcharr.json"
-# Optional: a one-time Dispatcharr metadata export. When set, the tool skips
-# player_api catalogue calls and uses this file for movie/series TMDB metadata.
-# catalog_file: "selected-catalog.dispatcharr.json"
+selected_groups_file: "selected-groups.json"
+# Optional: a prebuilt metadata catalog. When set, the tool skips player_api
+# catalogue calls and uses this file for movie/series TMDB metadata.
+# catalog_file: "selected-catalog.json"
 
 output:
   movies_dir: "/mnt/nas/strm/movies"
@@ -35,10 +35,8 @@ series:
   quality_words: ["4k", "uhd", "fhd", "hd"]
 
 tmdb:
-  # Off by default. Dispatcharr/VOD2MLIB appends TMDB suffixes from the
-  # provider/Dispatcharr catalogue fields, which this tool also uses when
-  # catalog_file is set. Enable this only to fill missing IDs with your own
-  # TMDB API key.
+  # Off by default. The tool appends TMDB suffixes from provider/catalog fields.
+  # Enable this only to fill missing IDs with your own TMDB API key.
   enabled: false
   api_key_env: "TMDB_API_KEY"
   language: "en-US"
