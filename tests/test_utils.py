@@ -5,7 +5,7 @@ import yaml
 
 from vod_strm_builder.cli import existing_tmdb_stats, generate
 from vod_strm_builder.m3u import _parse_episode_title, scan_m3u_groups
-from vod_strm_builder.utils import clean_title, extract_year, folder_name
+from vod_strm_builder.utils import clean_title, extract_year, folder_name, safe_filename
 
 
 def test_clean_title_strips_provider_prefix():
@@ -29,7 +29,12 @@ def test_folder_name_appends_tmdb_suffix():
 
 def test_folder_name_uses_clean_movie_title_and_year():
     assert folder_name("NF - Under Paris 4K (2024)", 2024, None, False) == "Under Paris (2024)"
+    assert folder_name("NF - Beverly Hills Cop: Axel F 4K (2024)", 2024, None, False) == "Beverly Hills Cop - Axel F (2024)"
     assert folder_name("A+ - Finch (2021) TOM HANKS", 2021, None, False) == "Finch (2021)"
+
+
+def test_safe_filename_preserves_separators_as_hyphens():
+    assert safe_filename("9/11: Inside The President's War Room") == "9-11 - Inside The President's War Room"
 
 
 def test_parse_episode_title():

@@ -89,7 +89,9 @@ def strip_redundant_year(name: str, year: int | None) -> str:
 
 
 def safe_filename(name: str, max_len: int = 180) -> str:
-    text = INVALID_FILENAME.sub("", name or "Unknown")
+    text = (name or "Unknown").replace(":", " - ").replace("/", "-").replace("\\", "-").replace("|", "-")
+    text = INVALID_FILENAME.sub("", text)
+    text = re.sub(r"\s+-\s+", " - ", text)
     text = re.sub(r"\s+", " ", text).strip().rstrip(". ")
     return (text or "Unknown")[:max_len].rstrip(". ")
 
