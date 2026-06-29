@@ -1,22 +1,30 @@
-FROM python:3.12-slim
-
-ENV PYTHONUNBUFFERED=1 \
-    VSB_WORK_DIR=/work \
-    PORT=8080
+FROM rust:1.89-bookworm AS builder
 
 WORKDIR /app
 
-COPY pyproject.toml README.md LICENSE ./
-COPY src ./src
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY examples ./examples
 COPY web ./web
 
-RUN pip install --no-cache-dir -e . \
-    && useradd --create-home --uid 1000 appuser \
+RUN cargo build --release -p vod-strm-builder --bin vod-strm-builder-rs
+
+FROM debian:bookworm-slim
+
+ENV RUST_LOG=info \
+    VSB_BIND=0.0.0.0:8080 \
+    VSB_WORK_DIR=/work
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /work /media/movies /media/tvshows \
-    && chown -R appuser:appuser /work /media
+    && chown -R 999:996 /work /media
 
-USER appuser
+COPY --from=builder /app/target/release/vod-strm-builder-rs /usr/local/bin/vod-strm-builder-rs
 
+USER 999:996
+WORKDIR /work
 EXPOSE 8080
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "0", "vod_strm_builder.webapp:create_app()"]
+CMD ["/usr/local/bin/vod-strm-builder-rs", "serve"]

@@ -26,23 +26,22 @@ permissions:
 
 jobs:
   check:
-    name: Test And Compose Check
+    name: Rust Test And Compose Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@v6.3.0
-        with:
-          python-version: "3.12"
-          cache: pip
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal --component rustfmt
+          rustup default 1.89.0
 
-      - name: Install
-        run: pip install -e . pytest
-
-      - name: Test
-        run: pytest
+      - name: Format And Test
+        run: |
+          cargo fmt --all -- --check
+          cargo test --workspace
 
       - name: Validate Compose Files
         run: |

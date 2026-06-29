@@ -1,15 +1,11 @@
 .git
-.venv
-__pycache__
-*.pyc
-.pytest_cache
-.mypy_cache
+target
 build
 dist
-*.egg-info
 work
 config.yml
 config.yaml
+source.yml
 selected-groups*.json
 selected-catalog*.json
 dry-run-summary*.json
