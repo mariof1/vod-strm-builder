@@ -5,13 +5,13 @@ import unicodedata
 from pathlib import Path
 
 INVALID_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-LEADING_TAG = re.compile(
-    r"^(?:"
-    r"\|?[A-Z]{2,4}\|?"
-    r"|\[[A-Z]{2,4}\]"
-    r"|\([A-Z]{2,4}\)"
-    r"|NF|A\+|D\+|AMZN|DSNP|ATVP|HBO|MAX|QFR|MULTI"
-    r")\s*[-:|]\s+",
+LANGUAGE_CODES = "AF|AL|AR|AU|BG|CA|CN|CZ|DE|DK|EN|ES|FI|FR|GR|HE|HU|IN|IT|JP|KR|NL|NO|PL|PT|RO|RU|SE|SK|TR|UK|US"
+LEADING_LANGUAGE_TAG = re.compile(rf"^(?:{LANGUAGE_CODES})\s*[-|]\s+", re.IGNORECASE)
+LEADING_LANGUAGE_QUALITY_TAG = re.compile(rf"^(?:{LANGUAGE_CODES})\s+(?:4K|8K|UHD|FHD|HD)\s*[-:|]\s+", re.IGNORECASE)
+LEADING_CODE_TAG = re.compile(r"^(?:\|?[A-Z]{2,4}\|?|\[[A-Z]{2,4}\]|\([A-Z]{2,4}\))\s*[-|]\s+")
+LEADING_CODE_QUALITY_TAG = re.compile(r"^(?:\|?[A-Z]{2,4}\|?)\s+(?:4K|8K|UHD|FHD|HD)\s*[-:|]\s+")
+LEADING_PROVIDER_TAG = re.compile(
+    r"^(?:NF|A\+|D\+|AMZN|DSNP|ATVP|HBO|MAX|QFR|MULTI)\s*[-:|]\s+",
     re.IGNORECASE,
 )
 TRAILING_YEAR = re.compile(r"\((19\d{2}|20\d{2}|21\d{2})\)\s*$")
@@ -135,7 +135,11 @@ def _strip_leading_tags(text: str) -> str:
     while True:
         stripped = re.sub(r"^\((?:MULTI|EN|FR|DE|PL|ES|IT)\)\s*", "", cleaned, flags=re.IGNORECASE).strip()
         stripped = re.sub(r"^\[(?:MULTI|EN|FR|DE|PL|ES|IT)\]\s*", "", stripped, flags=re.IGNORECASE).strip()
-        stripped = LEADING_TAG.sub("", stripped).strip()
+        stripped = LEADING_LANGUAGE_QUALITY_TAG.sub("", stripped).strip()
+        stripped = LEADING_LANGUAGE_TAG.sub("", stripped).strip()
+        stripped = LEADING_CODE_QUALITY_TAG.sub("", stripped).strip()
+        stripped = LEADING_CODE_TAG.sub("", stripped).strip()
+        stripped = LEADING_PROVIDER_TAG.sub("", stripped).strip()
         if stripped == cleaned:
             return cleaned
         cleaned = stripped

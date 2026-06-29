@@ -10,6 +10,7 @@ from vod_strm_builder.utils import clean_title, extract_year, folder_name, safe_
 
 def test_clean_title_strips_provider_prefix():
     assert clean_title("EN - The Matrix (1999)") == "The Matrix (1999)"
+    assert clean_title("En - Pretty Woman (1990)") == "Pretty Woman (1990)"
 
 
 def test_clean_title_removes_provider_quality_and_subtitle_noise():
@@ -17,6 +18,7 @@ def test_clean_title_removes_provider_quality_and_subtitle_noise():
     assert clean_title("EN - Outcome (2026) (MULTI SUB)") == "Outcome (2026)"
     assert clean_title("A+ - Finch (2021) TOM HANKS") == "Finch (2021)"
     assert clean_title("D+ - Sea Lions Of The Galapagos (2025)") == "Sea Lions Of The Galapagos (2025)"
+    assert clean_title("PL 4K - Kolory zła: Czerń (2026) Polski") == "Kolory zła: Czerń (2026)"
 
 
 def test_extract_year_finds_year_before_provider_noise():
@@ -31,6 +33,9 @@ def test_folder_name_uses_clean_movie_title_and_year():
     assert folder_name("NF - Under Paris 4K (2024)", 2024, None, False) == "Under Paris (2024)"
     assert folder_name("NF - Beverly Hills Cop: Axel F 4K (2024)", 2024, None, False) == "Beverly Hills Cop - Axel F (2024)"
     assert folder_name("A+ - Finch (2021) TOM HANKS", 2021, None, False) == "Finch (2021)"
+    assert folder_name("EN - Dune: Part Two (2024)", 2024, None, False) == "Dune - Part Two (2024)"
+    assert folder_name("Dune: Part Two (2024)", 2024, None, False) == "Dune - Part Two (2024)"
+    assert folder_name("D+ - BLACKPINK: The Movie  (2021)", 2021, None, False) == "BLACKPINK - The Movie (2021)"
 
 
 def test_safe_filename_preserves_separators_as_hyphens():
