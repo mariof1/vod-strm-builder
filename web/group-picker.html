@@ -10,9 +10,12 @@
       --bg: #101114;
       --panel: #181a1f;
       --panel-2: #23262d;
+      --panel-3: #11151a;
       --line: #323841;
+      --soft-line: #262c34;
       --text: #eef3f6;
       --muted: #aab5c0;
+      --quiet: #7f8b98;
       --blue: #5aa7ff;
       --green: #44c27f;
       --red: #ff7070;
@@ -28,6 +31,7 @@
       background: var(--bg);
       color: var(--text);
       overflow: hidden;
+      line-height: 1.4;
     }
 
     button,
@@ -49,10 +53,14 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
     }
 
     button:hover,
-    .file-button:hover { border-color: var(--focus); }
+    .file-button:hover {
+      border-color: var(--focus);
+      background: #2a2f38;
+    }
 
     button.primary {
       border-color: #2f79c7;
@@ -70,7 +78,7 @@
     textarea,
     select {
       width: 100%;
-      border: 1px solid var(--line);
+      border: 1px solid var(--soft-line);
       border-radius: 6px;
       background: #0d0f13;
       color: var(--text);
@@ -108,6 +116,7 @@
       color: var(--muted);
       font-size: 12px;
       letter-spacing: 0;
+      min-width: 0;
     }
 
     .app {
@@ -119,8 +128,8 @@
     header {
       border-bottom: 1px solid var(--line);
       background: #14161a;
-      min-height: 64px;
-      padding: 0 22px;
+      min-height: 68px;
+      padding: 0 24px;
       display: flex;
       justify-content: space-between;
       gap: 16px;
@@ -142,8 +151,33 @@
       line-height: 1.2;
     }
 
-    h1 { font-size: 20px; }
-    h2 { font-size: 15px; }
+    h1 {
+      font-size: 21px;
+      font-weight: 750;
+    }
+
+    h2 {
+      font-size: 13px;
+      font-weight: 750;
+      color: #dfe7ed;
+      text-transform: uppercase;
+    }
+
+    .brand {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .brand-subtitle {
+      color: var(--quiet);
+      font-size: 12px;
+    }
+
+    .save-button {
+      min-width: 126px;
+      background: #252b34;
+    }
 
     .status {
       color: var(--muted);
@@ -211,7 +245,7 @@
     main {
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(310px, 360px) minmax(560px, 1fr) minmax(340px, 420px);
+      grid-template-columns: minmax(330px, 380px) minmax(640px, 1fr) minmax(360px, 450px);
       overflow: hidden;
     }
 
@@ -220,7 +254,7 @@
     .right {
       min-height: 0;
       min-width: 0;
-      padding: 16px;
+      padding: 14px;
     }
 
     .left,
@@ -236,24 +270,29 @@
     .center {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
       overflow: hidden;
       background: #111317;
     }
 
     .section {
-      border: 1px solid var(--line);
+      border: 1px solid var(--soft-line);
       border-radius: 6px;
-      background: rgba(255, 255, 255, 0.015);
-      padding: 12px;
+      background: #171a20;
+      padding: 14px;
       display: grid;
-      gap: 10px;
-      margin-bottom: 10px;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .section h2 {
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--soft-line);
     }
 
     .workbench {
       display: grid;
-      gap: 10px;
+      gap: 12px;
       flex: 0 0 auto;
       min-width: 0;
     }
@@ -273,6 +312,10 @@
     .provider-list {
       display: grid;
       gap: 6px;
+      max-height: 170px;
+      overflow: auto;
+      padding-right: 2px;
+      scrollbar-width: thin;
     }
 
     .provider-item {
@@ -284,7 +327,7 @@
       min-height: 38px;
       text-align: left;
       border-color: #29303a;
-      background: #14171c;
+      background: var(--panel-3);
     }
 
     .provider-item.active {
@@ -308,9 +351,30 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      min-height: 34px;
+      min-height: 36px;
       color: var(--text);
       font-size: 13px;
+      min-width: 0;
+    }
+
+    .option-list {
+      display: grid;
+      gap: 6px;
+    }
+
+    .option-list .check-row {
+      border: 1px solid var(--soft-line);
+      border-radius: 6px;
+      background: var(--panel-3);
+      padding: 7px 9px;
+    }
+
+    .option-list.compact {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .option-list.compact .check-row {
+      align-items: center;
     }
 
     .toolbar {
@@ -320,11 +384,21 @@
       flex-wrap: wrap;
     }
 
+    .toolbar.compact button {
+      min-height: 32px;
+      padding: 0 10px;
+      font-size: 12px;
+    }
+
     .action-bar {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 10px;
       align-items: center;
+      border: 1px solid var(--soft-line);
+      border-radius: 6px;
+      background: #171a20;
+      padding: 10px;
     }
 
     .action-group,
@@ -341,9 +415,16 @@
       justify-content: flex-end;
     }
 
+    .action-group button,
+    .action-group .file-button,
+    .run-group button,
+    .selection-actions button {
+      min-width: 0;
+    }
+
     .group-search-row {
       display: grid;
-      grid-template-columns: minmax(220px, 420px) minmax(180px, 1fr);
+      grid-template-columns: minmax(260px, 460px) minmax(180px, 1fr);
       gap: 10px;
       align-items: center;
     }
@@ -391,10 +472,10 @@
     }
 
     .metric {
-      border: 1px solid var(--line);
+      border: 1px solid var(--soft-line);
       border-radius: 6px;
       background: var(--panel);
-      padding: 10px;
+      padding: 12px;
       min-width: 0;
     }
 
@@ -409,7 +490,7 @@
       display: block;
       color: var(--muted);
       font-size: 12px;
-      margin-top: 2px;
+      margin-top: 3px;
       overflow: hidden;
       white-space: nowrap;
       text-overflow: ellipsis;
@@ -443,8 +524,8 @@
       flex-direction: column;
       min-height: 0;
       flex: 1 1 auto;
-      border: 1px solid var(--line);
-      border-radius: 8px;
+      border: 1px solid var(--soft-line);
+      border-radius: 6px;
       background: var(--panel);
       overflow: hidden;
     }
@@ -456,7 +537,7 @@
       gap: 10px;
       flex-wrap: wrap;
       padding: 10px;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--soft-line);
       background: #15181d;
     }
 
@@ -486,8 +567,8 @@
 
     th,
     td {
-      border-bottom: 1px solid var(--line);
-      padding: 8px 9px;
+      border-bottom: 1px solid var(--soft-line);
+      padding: 9px 10px;
       text-align: left;
       vertical-align: middle;
       font-size: 13px;
@@ -503,6 +584,14 @@
     }
 
     tr:hover td { background: rgba(255, 255, 255, 0.025); }
+
+    tr.selected td {
+      background: rgba(90, 167, 255, 0.07);
+    }
+
+    tr.selected:hover td {
+      background: rgba(90, 167, 255, 0.11);
+    }
 
     .provider-name,
     .group-name,
@@ -536,9 +625,9 @@
     .pick {
       display: inline-grid;
       place-items: center;
-      width: 28px;
-      min-height: 28px;
-      height: 28px;
+      width: 30px;
+      min-height: 30px;
+      height: 30px;
       padding: 0;
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -581,16 +670,24 @@
       min-width: 0;
     }
 
+    .output-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+
     .output-tabs {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      display: flex;
+      flex-wrap: wrap;
       gap: 6px;
     }
 
     .output-tabs button {
-      min-width: 0;
+      flex: 0 0 auto;
       min-height: 32px;
-      padding: 0 8px;
+      padding: 0 10px;
     }
 
     .output-tabs button.active {
@@ -603,11 +700,13 @@
       min-height: 280px;
       resize: none;
       font-size: 12px;
+      border-color: var(--soft-line);
     }
 
     .output-actions {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
     }
 
     .mono {
@@ -670,6 +769,7 @@
       header {
         display: grid;
         align-items: start;
+        padding: 14px;
       }
       .header-actions {
         justify-content: flex-start;
@@ -677,15 +777,19 @@
         grid-template-columns: 1fr;
       }
       .status { text-align: left; }
+      .option-list.compact { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <div class="app">
     <header>
-      <h1>VOD STRM Builder</h1>
+      <div class="brand">
+        <h1>VOD STRM Builder</h1>
+        <div class="brand-subtitle">Library Control</div>
+      </div>
       <div class="header-actions">
-        <button id="saveSettings" type="button">Save Settings</button>
+        <button class="save-button" id="saveSettings" type="button">Save Settings</button>
         <div class="status" id="status">Ready</div>
       </div>
     </header>
@@ -704,7 +808,7 @@
         <section class="section">
           <h2>Providers</h2>
           <div class="provider-list" id="providerList"></div>
-          <div class="toolbar">
+          <div class="toolbar compact">
             <button id="addProvider" type="button">Add</button>
             <button id="duplicateProvider" type="button">Duplicate</button>
             <button id="removeProvider" type="button">Remove</button>
@@ -729,10 +833,12 @@
           <label>User Agent
             <input id="userAgent" type="text" value="TiviMate/5.1.6 (Android 12)">
           </label>
-          <label class="check-row">
-            <input id="inlineSecrets" type="checkbox">
-            Put secrets directly in config.yml
-          </label>
+          <div class="option-list">
+            <label class="check-row">
+              <input id="inlineSecrets" type="checkbox">
+              Put secrets directly in config.yml
+            </label>
+          </div>
         </section>
 
         <section class="section">
@@ -751,29 +857,37 @@
               <input id="catalogFile" type="text" placeholder="optional">
             </label>
           </div>
-          <label class="check-row"><input id="appendTmdb" type="checkbox" checked> Append TMDB ID</label>
-          <label class="check-row"><input id="generateNfo" type="checkbox" checked> Generate NFO</label>
-          <label class="check-row"><input id="dryRun" type="checkbox" checked> Dry run</label>
-          <label class="check-row"><input id="incrementalUpdate" type="checkbox" checked> Incremental update</label>
-          <label class="check-row"><input id="cleanupMissing" type="checkbox"> Remove missing content</label>
-          <label class="check-row"><input id="cleanOutput" type="checkbox"> Clean output first</label>
+          <div class="option-list compact">
+            <label class="check-row"><input id="appendTmdb" type="checkbox" checked> Append TMDB ID</label>
+            <label class="check-row"><input id="generateNfo" type="checkbox" checked> Generate NFO</label>
+            <label class="check-row"><input id="dryRun" type="checkbox" checked> Dry run</label>
+            <label class="check-row"><input id="incrementalUpdate" type="checkbox" checked> Incremental update</label>
+            <label class="check-row"><input id="cleanupMissing" type="checkbox"> Remove missing content</label>
+            <label class="check-row"><input id="cleanOutput" type="checkbox"> Clean output first</label>
+          </div>
         </section>
 
         <section class="section">
           <h2>Scheduler</h2>
-          <label class="check-row"><input id="schedulerEnabled" type="checkbox"> Enable automatic runs</label>
+          <div class="option-list">
+            <label class="check-row"><input id="schedulerEnabled" type="checkbox"> Enable automatic runs</label>
+          </div>
           <div class="grid-2">
-            <label>Run Every Hours
+            <label>Interval (hours)
               <input id="schedulerIntervalHours" type="number" min="1" max="720" step="1" value="24">
             </label>
-            <label class="check-row"><input id="schedulerSyncBeforeRun" type="checkbox" checked> Sync first</label>
+            <div class="option-list">
+              <label class="check-row"><input id="schedulerSyncBeforeRun" type="checkbox" checked> Sync first</label>
+            </div>
           </div>
           <div class="meta-line" id="schedulerStatus">Scheduler disabled</div>
         </section>
 
         <section class="section">
           <h2>Series</h2>
-          <label class="check-row"><input id="requireSelectedGroup" type="checkbox" checked> Require selected M3U group</label>
+          <div class="option-list">
+            <label class="check-row"><input id="requireSelectedGroup" type="checkbox" checked> Require selected M3U group</label>
+          </div>
           <label>Quality Words
             <input id="qualityWords" type="text" value="4k, uhd, fhd, hd">
           </label>
@@ -781,7 +895,9 @@
 
         <section class="section">
           <h2>TMDB</h2>
-          <label class="check-row"><input id="tmdbEnabled" type="checkbox"> Enable lookup fallback</label>
+          <div class="option-list">
+            <label class="check-row"><input id="tmdbEnabled" type="checkbox"> Enable lookup fallback</label>
+          </div>
           <label>API Key / Token
             <input id="tmdbKey" type="password" autocomplete="off">
           </label>
@@ -796,13 +912,17 @@
           <label>Cache File
             <input id="tmdbCache" type="text" value=".tmdb-cache.json">
           </label>
-          <label class="check-row"><input id="tmdbMissingOnly" type="checkbox" checked> Lookup missing only</label>
-          <label class="check-row"><input id="tmdbFailOnError" type="checkbox"> Fail on TMDB errors</label>
+          <div class="option-list compact">
+            <label class="check-row"><input id="tmdbMissingOnly" type="checkbox" checked> Lookup missing only</label>
+            <label class="check-row"><input id="tmdbFailOnError" type="checkbox"> Fail on TMDB errors</label>
+          </div>
         </section>
 
         <section class="section">
           <h2>Jellyfin</h2>
-          <label class="check-row"><input id="jellyfinEnabled" type="checkbox"> Enable scan</label>
+          <div class="option-list">
+            <label class="check-row"><input id="jellyfinEnabled" type="checkbox"> Enable scan</label>
+          </div>
           <label>Server URL
             <input id="jellyfinUrl" type="url" placeholder="http://jellyfin.example.com:8096">
           </label>
@@ -812,7 +932,9 @@
           <label>Library Item IDs
             <input id="jellyfinItemIds" type="text" placeholder="optional, comma separated">
           </label>
-          <label class="check-row"><input id="jellyfinScan" type="checkbox" checked> Scan on complete</label>
+          <div class="option-list">
+            <label class="check-row"><input id="jellyfinScan" type="checkbox" checked> Scan on complete</label>
+          </div>
         </section>
       </aside>
 
@@ -893,7 +1015,9 @@
 
       <aside class="right">
         <div class="outputs">
-          <h2>Generated Files</h2>
+          <div class="output-header">
+            <h2>Generated Files</h2>
+          </div>
           <div class="output-tabs">
             <button class="active" type="button" data-output="config">config.yml</button>
             <button type="button" data-output="groups">groups.json</button>
@@ -1563,6 +1687,9 @@
 
     function renderRow(group) {
       const tr = document.createElement("tr");
+      if (state.selectedMovies.has(group.key) || state.selectedSeries.has(group.key)) {
+        tr.className = "selected";
+      }
       tr.append(
         cell(group.providerName, "provider-name"),
         cell(group.name, "group-name"),
@@ -1599,6 +1726,8 @@
         else set.delete(group.key);
         button.classList.toggle("on", selected);
         button.setAttribute("aria-pressed", selected ? "true" : "false");
+        const row = button.closest("tr");
+        if (row) row.classList.toggle("selected", state.selectedMovies.has(group.key) || state.selectedSeries.has(group.key));
         renderSelectionChange();
         quickProgress(selected ? "Group selected" : "Group deselected");
       });
