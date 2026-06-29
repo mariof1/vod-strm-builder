@@ -24,6 +24,9 @@ class OutputConfig:
     generate_nfo: bool = True
     clean: bool = False
     dry_run: bool = False
+    incremental: bool = True
+    cleanup_missing: bool = False
+    manifest_file: Path | None = None
 
 
 @dataclass(frozen=True)

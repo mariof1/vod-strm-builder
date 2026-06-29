@@ -28,6 +28,9 @@ def test_build_config_uses_cached_playlist_and_env_secrets(tmp_path: Path):
         "generate_nfo": True,
         "clean_output": False,
         "dry_run": True,
+        "incremental_update": True,
+        "cleanup_missing": True,
+        "manifest_file": str(tmp_path / "manifest.json"),
         "require_selected_group": True,
         "quality_words": ["4k", "hd"],
         "tmdb_enabled": False,
@@ -42,6 +45,9 @@ def test_build_config_uses_cached_playlist_and_env_secrets(tmp_path: Path):
     assert config["provider"]["username_env"] == "XTREAM_USERNAME"
     assert config["provider"]["m3u_file"] == str(tmp_path / "playlist.m3u")
     assert config["output"]["movies_dir"] == "/media/movies"
+    assert config["output"]["incremental"] is True
+    assert config["output"]["cleanup_missing"] is True
+    assert config["output"]["manifest_file"] == str(tmp_path / "manifest.json")
     assert env["XTREAM_USERNAME"] == "user"
     assert env["XTREAM_PASSWORD"] == "pass"
 
@@ -147,6 +153,26 @@ def test_settings_api_persists_to_work_dir(tmp_path: Path):
     assert save_response.status_code == 200
     assert load_response.get_json() == payload
     assert (tmp_path / "web-settings.json").exists()
+
+
+def test_scheduler_plan_is_persisted_from_settings(tmp_path: Path):
+    state = AppState(tmp_path)
+    payload = {
+        "settings": {
+            "scheduler_enabled": True,
+            "scheduler_interval_hours": 6,
+            "scheduler_sync_before_run": True,
+        }
+    }
+
+    state.save_settings(payload)
+    state.update_scheduler_plan(payload)
+    status = state.scheduler_status()
+
+    assert status["enabled"] is True
+    assert status["interval_hours"] == 6
+    assert status["sync_before_run"] is True
+    assert status["next_run_at"]
 
 
 def test_job_public_includes_progress(tmp_path: Path):

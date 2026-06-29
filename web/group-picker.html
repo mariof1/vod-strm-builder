@@ -362,6 +362,13 @@
       white-space: nowrap;
     }
 
+    .meta-line {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      min-height: 16px;
+    }
+
     .file-input {
       position: absolute;
       width: 1px;
@@ -747,7 +754,21 @@
           <label class="check-row"><input id="appendTmdb" type="checkbox" checked> Append TMDB ID</label>
           <label class="check-row"><input id="generateNfo" type="checkbox" checked> Generate NFO</label>
           <label class="check-row"><input id="dryRun" type="checkbox" checked> Dry run</label>
+          <label class="check-row"><input id="incrementalUpdate" type="checkbox" checked> Incremental update</label>
+          <label class="check-row"><input id="cleanupMissing" type="checkbox"> Remove missing content</label>
           <label class="check-row"><input id="cleanOutput" type="checkbox"> Clean output first</label>
+        </section>
+
+        <section class="section">
+          <h2>Scheduler</h2>
+          <label class="check-row"><input id="schedulerEnabled" type="checkbox"> Enable automatic runs</label>
+          <div class="grid-2">
+            <label>Run Every Hours
+              <input id="schedulerIntervalHours" type="number" min="1" max="720" step="1" value="24">
+            </label>
+            <label class="check-row"><input id="schedulerSyncBeforeRun" type="checkbox" checked> Sync first</label>
+          </div>
+          <div class="meta-line" id="schedulerStatus">Scheduler disabled</div>
         </section>
 
         <section class="section">
@@ -910,12 +931,14 @@
       progressTimer: null,
       progressValue: 0,
       groupSource: "m3u",
+      schedulerTimer: null,
     };
 
     const ids = [
       "providerName", "serverUrl", "username", "password", "m3uUrl", "userAgent", "inlineSecrets",
       "moviesDir", "seriesDir", "groupsFile", "catalogFile", "appendTmdb", "generateNfo",
-      "dryRun", "cleanOutput", "requireSelectedGroup", "qualityWords", "tmdbEnabled",
+      "dryRun", "incrementalUpdate", "cleanupMissing", "cleanOutput", "schedulerEnabled",
+      "schedulerIntervalHours", "schedulerSyncBeforeRun", "requireSelectedGroup", "qualityWords", "tmdbEnabled",
       "tmdbKey", "tmdbLanguage", "tmdbMinScore", "tmdbCache", "tmdbMissingOnly",
       "tmdbFailOnError", "jellyfinEnabled", "jellyfinUrl", "jellyfinKey",
       "jellyfinItemIds", "jellyfinScan"
@@ -928,6 +951,7 @@
       progressFill: document.getElementById("progressFill"),
       progressLabel: document.getElementById("progressLabel"),
       progressPercent: document.getElementById("progressPercent"),
+      schedulerStatus: document.getElementById("schedulerStatus"),
       saveSettings: document.getElementById("saveSettings"),
       providerList: document.getElementById("providerList"),
       addProvider: document.getElementById("addProvider"),
@@ -1025,6 +1049,7 @@
           selected_groups: selectedGroupsPayload(),
         });
       }, "Settings saved");
+      await refreshSchedulerStatus();
     });
 
     els.fileInput.addEventListener("change", async () => {
@@ -1365,7 +1390,12 @@
         append_tmdb: form.appendTmdb.checked,
         generate_nfo: form.generateNfo.checked,
         dry_run: form.dryRun.checked,
+        incremental_update: form.incrementalUpdate.checked,
+        cleanup_missing: form.cleanupMissing.checked,
         clean_output: form.cleanOutput.checked,
+        scheduler_enabled: form.schedulerEnabled.checked,
+        scheduler_interval_hours: Number(form.schedulerIntervalHours.value || 24),
+        scheduler_sync_before_run: form.schedulerSyncBeforeRun.checked,
         require_selected_group: form.requireSelectedGroup.checked,
         quality_words: csv(form.qualityWords.value),
         tmdb_enabled: form.tmdbEnabled.checked,
@@ -1684,6 +1714,9 @@
       lines.push(`  generate_nfo: ${bool(form.generateNfo.checked)}`);
       lines.push(`  clean: ${bool(form.cleanOutput.checked)}`);
       lines.push(`  dry_run: ${bool(form.dryRun.checked)}`);
+      lines.push(`  incremental: ${bool(form.incrementalUpdate.checked)}`);
+      lines.push(`  cleanup_missing: ${bool(form.cleanupMissing.checked)}`);
+      lines.push('  manifest_file: ".vod-strm-builder-manifest.json"');
       lines.push("");
       lines.push("filters:");
       lines.push("  movie_groups: []");
@@ -1824,6 +1857,8 @@
         render();
         setStatus(loadedSettings ? "Settings loaded" : "Ready");
       }
+      await refreshSchedulerStatus();
+      state.schedulerTimer = window.setInterval(refreshSchedulerStatus, 30000);
       finishProgress();
     }
 
@@ -1856,7 +1891,12 @@
       setChecked(form.appendTmdb, settings.append_tmdb);
       setChecked(form.generateNfo, settings.generate_nfo);
       setChecked(form.dryRun, settings.dry_run);
+      setChecked(form.incrementalUpdate, settings.incremental_update !== false);
+      setChecked(form.cleanupMissing, settings.cleanup_missing);
       setChecked(form.cleanOutput, settings.clean_output);
+      setChecked(form.schedulerEnabled, settings.scheduler_enabled);
+      if (settings.scheduler_interval_hours !== undefined) form.schedulerIntervalHours.value = settings.scheduler_interval_hours;
+      setChecked(form.schedulerSyncBeforeRun, settings.scheduler_sync_before_run !== false);
       setChecked(form.requireSelectedGroup, settings.require_selected_group);
       if (Array.isArray(settings.quality_words)) form.qualityWords.value = settings.quality_words.join(", ");
       setChecked(form.tmdbEnabled, settings.tmdb_enabled);
@@ -1999,6 +2039,32 @@
     function setStatus(message) {
       els.status.textContent = message;
       els.status.classList.remove("error");
+    }
+
+    async function refreshSchedulerStatus() {
+      try {
+        const data = await apiGet("/api/scheduler/status");
+        els.schedulerStatus.textContent = schedulerStatusText(data);
+      } catch (error) {
+        els.schedulerStatus.textContent = "Scheduler status unavailable";
+      }
+    }
+
+    function schedulerStatusText(data) {
+      if (!data || !data.enabled) return "Scheduler disabled";
+      const parts = [`Every ${Number(data.interval_hours || 24).toLocaleString()}h`];
+      if (data.sync_before_run) parts.push("sync first");
+      if (data.running_job_id) parts.push(`running ${data.running_job_id}`);
+      if (data.next_run_at) parts.push(`next ${formatDateTime(data.next_run_at)}`);
+      if (data.last_run_at) parts.push(`last ${formatDateTime(data.last_run_at)}`);
+      if (data.last_error) parts.push(`last error: ${data.last_error}`);
+      return parts.join(" · ");
+    }
+
+    function formatDateTime(value) {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString();
     }
 
     function showError(error) {

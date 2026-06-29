@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlparse
@@ -40,7 +41,7 @@ class PlaylistRefreshRejected(RuntimeError):
 
 def create_app(work_dir: Path | None = None) -> Flask:
     app = Flask(__name__)
-    state = AppState(work_dir or Path(os.environ.get("VSB_WORK_DIR", "/work")))
+    state = AppState(work_dir or Path(os.environ.get("VSB_WORK_DIR", "/work")), start_scheduler=True)
 
     @app.get("/")
     def index():
@@ -58,6 +59,10 @@ def create_app(work_dir: Path | None = None) -> Flask:
     def get_settings():
         return jsonify(state.load_settings())
 
+    @app.get("/api/scheduler/status")
+    def scheduler_status():
+        return jsonify(state.scheduler_status())
+
     @app.get("/api/groups")
     def get_groups():
         return jsonify(state.load_or_rebuild_group_cache())
@@ -67,6 +72,7 @@ def create_app(work_dir: Path | None = None) -> Flask:
         try:
             payload = api_payload()
             state.save_settings(payload)
+            state.update_scheduler_plan(payload)
             return jsonify({"ok": True, "settings": payload})
         except Exception as exc:
             LOG.exception("settings save failed")
@@ -79,77 +85,7 @@ def create_app(work_dir: Path | None = None) -> Flask:
             providers = settings_providers(payload)
             if not providers:
                 raise ValueError("Provider URL, username, and password are required.")
-
-            stored = state.load_settings()
-            stored_selected = stored.get("selected_groups") if isinstance(stored.get("selected_groups"), dict) else {}
-            selected_groups = payload.get("selected_groups") if isinstance(payload.get("selected_groups"), dict) else stored_selected
-            selected_by_provider = selected_groups_by_provider(selected_groups or {}, providers)
-            all_groups: list[dict[str, object]] = []
-            playlist_cached = True
-            sources: set[str] = set()
-            warnings: list[str] = []
-            for provider in providers:
-                provider_id = provider_identifier(provider)
-                provider_name = provider_label(provider)
-                url = clean_string(provider.get("m3u_url")) or build_m3u_url(provider)
-                if not url:
-                    raise ValueError(f"Provider {provider_name} is missing an M3U URL or URL credentials.")
-                LOG.info("fetching playlist groups provider=%s url=%s", provider_name, redact_url(url))
-                prefer_movies = bool(selected_by_provider.get(provider_id, {}).get("movie_groups"))
-                try:
-                    groups = state.fetch_and_scan_playlist(
-                        url,
-                        str(provider.get("user_agent") or DEFAULT_USER_AGENT),
-                        provider_id,
-                        reject_without_movies=prefer_movies,
-                    )
-                    source = "m3u"
-                except PlaylistRefreshRejected as playlist_exc:
-                    LOG.warning("m3u refresh rejected provider=%s error=%s", provider_name, playlist_exc)
-                    warnings.append(f"{provider_name}: {playlist_exc}")
-                    try:
-                        groups = state.fetch_xtream_groups(provider)
-                        if prefer_movies and group_entry_total(groups, "movie_count") == 0:
-                            raise RuntimeError("Xtream API returned no movie groups.")
-                        playlist_cached = False
-                        source = "xtream_api"
-                        warnings.append(f"{provider_name}: M3U refresh had no movies; using Xtream API groups.")
-                    except Exception as api_exc:
-                        cached_groups = state.scan_cached_playlist_if_available(provider_id, require_movies=prefer_movies)
-                        if cached_groups is not None:
-                            groups = cached_groups
-                            source = "m3u"
-                            warnings.append(f"{provider_name}: Xtream API fallback failed; keeping cached playlist. {api_exc}")
-                        else:
-                            groups = playlist_exc.groups
-                            source = "m3u"
-                            warnings.append(f"{provider_name}: Xtream API fallback failed; showing the movie-empty playlist. {api_exc}")
-                except Exception as playlist_exc:
-                    LOG.warning("m3u fetch failed provider=%s error=%s", provider_name, playlist_exc)
-                    cached_groups = state.scan_cached_playlist_if_available(provider_id, require_movies=prefer_movies)
-                    if cached_groups is not None:
-                        groups = cached_groups
-                        source = "m3u"
-                        warnings.append(f"{provider_name}: live playlist fetch failed; using cached playlist. {playlist_exc}")
-                    else:
-                        try:
-                            groups = state.fetch_xtream_groups(provider)
-                            playlist_cached = False
-                            source = "xtream_api"
-                            warnings.append(f"{provider_name}: {playlist_exc}")
-                        except Exception:
-                            raise playlist_exc
-                groups = tag_groups(groups, provider_id, provider_name, source)
-                all_groups.extend(groups)
-                sources.add(source)
-                LOG.info("provider groups fetched provider=%s source=%s groups=%s", provider_name, source, len(groups))
-
-            source = "mixed" if len(sources) > 1 else next(iter(sources), "m3u")
-            response = group_response(all_groups, playlist_cached=playlist_cached, source=source)
-            if warnings:
-                response["warning"] = "; ".join(warnings)
-            state.save_group_cache(response)
-            return jsonify(response)
+            return jsonify(state.refresh_playlists(payload))
         except Exception as exc:
             LOG.exception("playlist fetch failed")
             return json_error(exc)
@@ -230,18 +166,25 @@ def create_app(work_dir: Path | None = None) -> Flask:
 
 
 class AppState:
-    def __init__(self, work_dir: Path) -> None:
+    def __init__(self, work_dir: Path, start_scheduler: bool = False) -> None:
         self.work_dir = work_dir.resolve()
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.jobs_dir = self.work_dir / "jobs"
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        self.manifests_dir = self.work_dir / "manifests"
+        self.manifests_dir.mkdir(parents=True, exist_ok=True)
         self.playlists_dir = self.work_dir / "playlists"
         self.playlists_dir.mkdir(parents=True, exist_ok=True)
         self.playlist_cache = self.work_dir / "playlist.m3u"
         self.settings_path = self.work_dir / "web-settings.json"
         self.groups_path = self.work_dir / "web-groups.json"
+        self.scheduler_path = self.work_dir / "scheduler-state.json"
         self.jobs: dict[str, Job] = {}
         self.lock = threading.Lock()
+        self.scheduler_thread: threading.Thread | None = None
+        if start_scheduler:
+            self.scheduler_thread = threading.Thread(target=self.scheduler_loop, daemon=True)
+            self.scheduler_thread.start()
 
     def load_settings(self) -> dict[str, Any]:
         if not self.settings_path.exists():
@@ -264,6 +207,99 @@ class AppState:
             self.settings_path,
             len(settings_providers(payload.get("settings") or payload)),
         )
+
+    def load_scheduler_state(self) -> dict[str, Any]:
+        if not self.scheduler_path.exists():
+            return {}
+        try:
+            data = json.loads(self.scheduler_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            LOG.warning("scheduler state is not valid JSON path=%s", self.scheduler_path)
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def save_scheduler_state(self, payload: dict[str, Any]) -> None:
+        self.scheduler_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    def update_scheduler_plan(self, payload: dict[str, Any]) -> None:
+        settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else payload
+        state = self.load_scheduler_state()
+        enabled = as_bool(settings.get("scheduler_enabled"))
+        interval_hours = scheduler_interval_hours(settings)
+        state["enabled"] = enabled
+        state["interval_hours"] = interval_hours
+        state["sync_before_run"] = settings.get("scheduler_sync_before_run") is None or as_bool(settings.get("scheduler_sync_before_run"))
+        if enabled and not state.get("next_run_at"):
+            state["next_run_at"] = iso_time(time.time() + (interval_hours * 3600))
+        if not enabled:
+            state["next_run_at"] = None
+        self.save_scheduler_state(state)
+
+    def scheduler_status(self) -> dict[str, Any]:
+        settings_payload = self.load_settings()
+        settings = settings_payload.get("settings") if isinstance(settings_payload.get("settings"), dict) else settings_payload
+        state = self.load_scheduler_state()
+        enabled = as_bool(settings.get("scheduler_enabled"))
+        running = self.running_job()
+        return {
+            "enabled": enabled,
+            "interval_hours": scheduler_interval_hours(settings),
+            "sync_before_run": settings.get("scheduler_sync_before_run") is None or as_bool(settings.get("scheduler_sync_before_run")),
+            "next_run_at": state.get("next_run_at"),
+            "last_run_at": state.get("last_run_at"),
+            "last_job_id": state.get("last_job_id"),
+            "last_error": state.get("last_error"),
+            "running_job_id": running.id if running else None,
+        }
+
+    def scheduler_loop(self) -> None:
+        while True:
+            try:
+                self.scheduler_tick()
+            except Exception:
+                LOG.exception("scheduler tick failed")
+            time.sleep(30)
+
+    def scheduler_tick(self) -> None:
+        payload = self.load_settings()
+        settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else payload
+        if not as_bool(settings.get("scheduler_enabled")):
+            return
+        state = self.load_scheduler_state()
+        interval_hours = scheduler_interval_hours(settings)
+        next_run_at = parse_iso_time(state.get("next_run_at"))
+        now = time.time()
+        if next_run_at is None:
+            state["next_run_at"] = iso_time(now + (interval_hours * 3600))
+            state["enabled"] = True
+            state["interval_hours"] = interval_hours
+            self.save_scheduler_state(state)
+            return
+        if next_run_at > now:
+            return
+        if self.running_job() is not None:
+            return
+        run_payload = {
+            "settings": settings,
+            "selected_groups": payload.get("selected_groups") if isinstance(payload.get("selected_groups"), dict) else {},
+        }
+        try:
+            if settings.get("scheduler_sync_before_run") is None or as_bool(settings.get("scheduler_sync_before_run")):
+                LOG.info("scheduler syncing playlists before generator run")
+                self.refresh_playlists({**settings, "selected_groups": run_payload["selected_groups"]})
+            job = self.start_job(run_payload)
+            state["last_run_at"] = iso_time(now)
+            state["last_job_id"] = job.id
+            state["last_error"] = None
+            LOG.info("scheduler started generator job id=%s", job.id)
+        except Exception as exc:
+            state["last_error"] = str(exc)
+            LOG.exception("scheduler failed to start generator")
+        state["enabled"] = True
+        state["interval_hours"] = interval_hours
+        state["sync_before_run"] = settings.get("scheduler_sync_before_run") is None or as_bool(settings.get("scheduler_sync_before_run"))
+        state["next_run_at"] = iso_time(now + (interval_hours * 3600))
+        self.save_scheduler_state(state)
 
     def load_group_cache(self) -> dict[str, Any]:
         if not self.groups_path.exists():
@@ -317,6 +353,81 @@ class AppState:
             return self.playlist_cache
         safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in provider_id).strip("_")
         return self.playlists_dir / f"{safe or 'default'}.m3u"
+
+    def refresh_playlists(self, payload: dict[str, Any]) -> dict[str, object]:
+        providers = settings_providers(payload)
+        if not providers:
+            raise ValueError("Provider URL, username, and password are required.")
+        stored = self.load_settings()
+        stored_selected = stored.get("selected_groups") if isinstance(stored.get("selected_groups"), dict) else {}
+        selected_groups = payload.get("selected_groups") if isinstance(payload.get("selected_groups"), dict) else stored_selected
+        selected_by_provider = selected_groups_by_provider(selected_groups or {}, providers)
+        all_groups: list[dict[str, object]] = []
+        playlist_cached = True
+        sources: set[str] = set()
+        warnings: list[str] = []
+        for provider in providers:
+            provider_id = provider_identifier(provider)
+            provider_name = provider_label(provider)
+            url = clean_string(provider.get("m3u_url")) or build_m3u_url(provider)
+            if not url:
+                raise ValueError(f"Provider {provider_name} is missing an M3U URL or URL credentials.")
+            LOG.info("fetching playlist groups provider=%s url=%s", provider_name, redact_url(url))
+            prefer_movies = bool(selected_by_provider.get(provider_id, {}).get("movie_groups"))
+            try:
+                groups = self.fetch_and_scan_playlist(
+                    url,
+                    str(provider.get("user_agent") or DEFAULT_USER_AGENT),
+                    provider_id,
+                    reject_without_movies=prefer_movies,
+                )
+                source = "m3u"
+            except PlaylistRefreshRejected as playlist_exc:
+                LOG.warning("m3u refresh rejected provider=%s error=%s", provider_name, playlist_exc)
+                warnings.append(f"{provider_name}: {playlist_exc}")
+                try:
+                    groups = self.fetch_xtream_groups(provider)
+                    if prefer_movies and group_entry_total(groups, "movie_count") == 0:
+                        raise RuntimeError("Xtream API returned no movie groups.")
+                    playlist_cached = False
+                    source = "xtream_api"
+                    warnings.append(f"{provider_name}: M3U refresh had no movies; using Xtream API groups.")
+                except Exception as api_exc:
+                    cached_groups = self.scan_cached_playlist_if_available(provider_id, require_movies=prefer_movies)
+                    if cached_groups is not None:
+                        groups = cached_groups
+                        source = "m3u"
+                        warnings.append(f"{provider_name}: Xtream API fallback failed; keeping cached playlist. {api_exc}")
+                    else:
+                        groups = playlist_exc.groups
+                        source = "m3u"
+                        warnings.append(f"{provider_name}: Xtream API fallback failed; showing the movie-empty playlist. {api_exc}")
+            except Exception as playlist_exc:
+                LOG.warning("m3u fetch failed provider=%s error=%s", provider_name, playlist_exc)
+                cached_groups = self.scan_cached_playlist_if_available(provider_id, require_movies=prefer_movies)
+                if cached_groups is not None:
+                    groups = cached_groups
+                    source = "m3u"
+                    warnings.append(f"{provider_name}: live playlist fetch failed; using cached playlist. {playlist_exc}")
+                else:
+                    try:
+                        groups = self.fetch_xtream_groups(provider)
+                        playlist_cached = False
+                        source = "xtream_api"
+                        warnings.append(f"{provider_name}: {playlist_exc}")
+                    except Exception:
+                        raise playlist_exc
+            groups = tag_groups(groups, provider_id, provider_name, source)
+            all_groups.extend(groups)
+            sources.add(source)
+            LOG.info("provider groups fetched provider=%s source=%s groups=%s", provider_name, source, len(groups))
+
+        source = "mixed" if len(sources) > 1 else next(iter(sources), "m3u")
+        response = group_response(all_groups, playlist_cached=playlist_cached, source=source)
+        if warnings:
+            response["warning"] = "; ".join(warnings)
+        self.save_group_cache(response)
+        return response
 
     def fetch_and_scan_playlist(
         self,
@@ -442,6 +553,13 @@ class AppState:
         with self.lock:
             return self.jobs.get(job_id)
 
+    def running_job(self) -> "Job | None":
+        with self.lock:
+            for job in self.jobs.values():
+                if job.status not in TERMINAL_STATES:
+                    return job
+        return None
+
     def build_provider_runs(self, settings: dict[str, Any], selected_groups: dict[str, Any]) -> list[dict[str, Any]]:
         providers = settings_providers(settings)
         if not providers:
@@ -452,6 +570,7 @@ class AppState:
             provider_id = provider_identifier(provider)
             provider_name = provider_label(provider)
             provider_settings = settings_for_provider(settings, provider)
+            provider_settings["manifest_file"] = str(self.manifest_file_for(provider_id))
             validate_generate_settings(provider_settings, provider_name)
             provider_selected = selected_by_provider.get(provider_id) or empty_selected_groups()
             groups_path = self.jobs_dir / "pending-selected-groups.json"
@@ -471,6 +590,10 @@ class AppState:
             }
             runs.append(run)
         return runs
+
+    def manifest_file_for(self, provider_id: str) -> Path:
+        safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in provider_id).strip("_")
+        return self.manifests_dir / f"{safe or 'default'}.json"
 
 
 class Job:
@@ -975,6 +1098,8 @@ def build_config(settings: dict[str, Any], groups_path: Path, playlist_cache: Pa
             "generate_nfo": as_bool(settings.get("generate_nfo")),
             "clean": as_bool(settings.get("clean_output")),
             "dry_run": as_bool(settings.get("dry_run")),
+            "incremental": settings.get("incremental_update") is None or as_bool(settings.get("incremental_update")),
+            "cleanup_missing": as_bool(settings.get("cleanup_missing")),
         },
         "filters": {
             "movie_groups": [],
@@ -1006,6 +1131,9 @@ def build_config(settings: dict[str, Any], groups_path: Path, playlist_cache: Pa
     catalog_file = clean_string(settings.get("catalog_file"))
     if catalog_file:
         config["catalog_file"] = catalog_file
+    manifest_file = clean_string(settings.get("manifest_file"))
+    if manifest_file:
+        config["output"]["manifest_file"] = manifest_file
     jellyfin_url = clean_string(settings.get("jellyfin_url"))
     if jellyfin_url:
         config["jellyfin"]["server_url"] = jellyfin_url.rstrip("/")
@@ -1074,6 +1202,28 @@ def clean_string(value: Any) -> str:
 
 def as_bool(value: Any) -> bool:
     return bool(value) and str(value).lower() not in {"false", "0", "no", "off"}
+
+
+def scheduler_interval_hours(settings: dict[str, Any]) -> float:
+    try:
+        value = float(settings.get("scheduler_interval_hours") or 24)
+    except (TypeError, ValueError):
+        value = 24
+    return max(1.0, min(720.0, value))
+
+
+def iso_time(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def parse_iso_time(value: Any) -> float | None:
+    if not value:
+        return None
+    try:
+        text = str(value).replace("Z", "+00:00")
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
 
 
 def read_json_file(path: Path) -> dict[str, Any] | None:

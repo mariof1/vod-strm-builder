@@ -74,6 +74,9 @@ def load_config(path: str) -> AppConfig:
         generate_nfo=bool(output_raw.get("generate_nfo", True)),
         clean=bool(output_raw.get("clean", False)),
         dry_run=bool(output_raw.get("dry_run", False)),
+        incremental=bool(output_raw.get("incremental", True)),
+        cleanup_missing=bool(output_raw.get("cleanup_missing", False)),
+        manifest_file=Path(output_raw["manifest_file"]).expanduser() if output_raw.get("manifest_file") else None,
     )
 
     filters = FilterConfig(

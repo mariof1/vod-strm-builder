@@ -194,3 +194,81 @@ def test_generate_skips_series_scan_when_no_series_selected(tmp_path):
     assert summary["m3u_series_parse"]["seen_urls"] == 0
     assert summary["m3u_series_parse"]["unmapped"] == 0
     assert any(event["label"] == "No selected series to scan" for event in progress_events)
+
+
+def test_generate_incremental_manifest_adds_new_and_removes_missing(tmp_path):
+    playlist = tmp_path / "playlist.m3u"
+    selected_groups = tmp_path / "selected-groups.json"
+    selected_groups.write_text(json.dumps({"movie_groups": ["Movies"], "series_groups": []}), encoding="utf-8")
+    config = tmp_path / "config.yml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "provider": {
+                    "server_url": "http://127.0.0.1:9",
+                    "username": "user",
+                    "password": "pass",
+                    "m3u_file": str(playlist),
+                },
+                "selected_groups_file": str(selected_groups),
+                "output": {
+                    "movies_dir": str(tmp_path / "movies"),
+                    "series_dir": str(tmp_path / "tvshows"),
+                    "append_tmdb_id": False,
+                    "generate_nfo": False,
+                    "clean": False,
+                    "dry_run": False,
+                    "incremental": True,
+                    "cleanup_missing": True,
+                    "manifest_file": str(tmp_path / "manifest.json"),
+                },
+                "series": {"source": "m3u", "require_selected_m3u_group": True},
+                "tmdb": {"enabled": False},
+                "jellyfin": {"enabled": False},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    playlist.write_text(
+        "\n".join(
+            [
+                "#EXTM3U",
+                '#EXTINF:-1 group-title="Movies" tvg-name="EN - Alpha (2025)",Alpha',
+                "http://cdn.example/movie/user/pass/101.mp4",
+                '#EXTINF:-1 group-title="Movies" tvg-name="EN - Removed (2025)",Removed',
+                "http://cdn.example/movie/user/pass/102.mp4",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    first = generate(str(config))
+    alpha = tmp_path / "movies" / "Alpha (2025)" / "Alpha (2025).strm"
+    removed = tmp_path / "movies" / "Removed (2025)" / "Removed (2025).strm"
+    assert first["movie_files_written"] == 2
+    assert alpha.exists()
+    assert removed.exists()
+
+    playlist.write_text(
+        "\n".join(
+            [
+                "#EXTM3U",
+                '#EXTINF:-1 group-title="Movies" tvg-name="EN - Alpha (2025)",Alpha',
+                "http://cdn.example/movie/user/pass/101.mp4",
+                '#EXTINF:-1 group-title="Movies" tvg-name="EN - New One (2026)",New One',
+                "http://cdn.example/movie/user/pass/103.mp4",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    second = generate(str(config))
+
+    assert second["movie_files_unchanged"] == 1
+    assert second["movie_files_written"] == 1
+    assert second["movie_files_removed"] == 1
+    assert alpha.exists()
+    assert not removed.exists()
+    assert (tmp_path / "movies" / "New One (2026)" / "New One (2026).strm").exists()
