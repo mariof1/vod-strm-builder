@@ -1,0 +1,2207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VOD STRM Builder</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101114;
+      --panel: #181a1f;
+      --panel-2: #23262d;
+      --panel-3: #11151a;
+      --line: #323841;
+      --soft-line: #262c34;
+      --text: #eef3f6;
+      --muted: #aab5c0;
+      --quiet: #7f8b98;
+      --blue: #5aa7ff;
+      --green: #44c27f;
+      --red: #ff7070;
+      --focus: #93c8ff;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+      line-height: 1.4;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    button,
+    .file-button {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel-2);
+      color: var(--text);
+      min-height: 36px;
+      padding: 0 12px;
+      cursor: pointer;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+    }
+
+    button:hover,
+    .file-button:hover {
+      border-color: var(--focus);
+      background: #2a2f38;
+    }
+
+    button.primary {
+      border-color: #2f79c7;
+      background: #1f72be;
+    }
+
+    button:disabled {
+      color: #6f7a85;
+      border-color: #2a3038;
+      background: #181b20;
+      cursor: not-allowed;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid var(--soft-line);
+      border-radius: 6px;
+      background: #0d0f13;
+      color: var(--text);
+      outline: none;
+    }
+
+    input,
+    select { min-height: 38px; padding: 0 10px; }
+
+    textarea {
+      min-height: 148px;
+      resize: vertical;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      line-height: 1.45;
+      font-size: 13px;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 2px rgba(147, 200, 255, 0.16);
+    }
+
+    input[type="checkbox"] {
+      width: 18px;
+      min-height: 18px;
+      accent-color: var(--blue);
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0;
+      min-width: 0;
+    }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: #14161a;
+      min-height: 68px;
+      padding: 0 24px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      letter-spacing: 0;
+      line-height: 1.2;
+    }
+
+    h1 {
+      font-size: 21px;
+      font-weight: 750;
+    }
+
+    h2 {
+      font-size: 13px;
+      font-weight: 750;
+      color: #dfe7ed;
+      text-transform: uppercase;
+    }
+
+    .brand {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .brand-subtitle {
+      color: var(--quiet);
+      font-size: 12px;
+    }
+
+    .save-button {
+      min-width: 126px;
+      background: #252b34;
+    }
+
+    .status {
+      color: var(--muted);
+      font-size: 13px;
+      text-align: right;
+      max-width: 42vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status.error { color: var(--red); }
+
+    .progress-area {
+      border-bottom: 1px solid var(--line);
+      background: #12151a;
+      padding: 7px 22px 9px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .progress-area[hidden] { display: none; }
+
+    .progress-copy {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 0;
+    }
+
+    .progress-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .progress-percent {
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-track {
+      position: relative;
+      height: 5px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #090b0f;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #5aa7ff, #44c27f);
+      transition: width 180ms ease;
+    }
+
+    .progress-area.error .progress-fill {
+      background: var(--red);
+    }
+
+    main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(330px, 380px) minmax(640px, 1fr) minmax(360px, 450px);
+      overflow: hidden;
+    }
+
+    .left,
+    .center,
+    .right {
+      min-height: 0;
+      min-width: 0;
+      padding: 14px;
+    }
+
+    .left,
+    .right {
+      background: var(--panel);
+      overflow: auto;
+      scrollbar-width: thin;
+    }
+
+    .left { border-right: 1px solid var(--line); }
+    .right { border-left: 1px solid var(--line); }
+
+    .center {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow: hidden;
+      background: #111317;
+    }
+
+    .section {
+      border: 1px solid var(--soft-line);
+      border-radius: 6px;
+      background: #171a20;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .section h2 {
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--soft-line);
+    }
+
+    .workbench {
+      display: grid;
+      gap: 12px;
+      flex: 0 0 auto;
+      min-width: 0;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .provider-list {
+      display: grid;
+      gap: 6px;
+      max-height: 170px;
+      overflow: auto;
+      padding-right: 2px;
+      scrollbar-width: thin;
+    }
+
+    .provider-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      width: 100%;
+      min-height: 38px;
+      text-align: left;
+      border-color: #29303a;
+      background: var(--panel-3);
+    }
+
+    .provider-item.active {
+      border-color: var(--blue);
+      background: rgba(90, 167, 255, 0.16);
+    }
+
+    .provider-item span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .provider-item small {
+      color: var(--muted);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      color: var(--text);
+      font-size: 13px;
+      min-width: 0;
+    }
+
+    .option-list {
+      display: grid;
+      gap: 6px;
+    }
+
+    .option-list .check-row {
+      border: 1px solid var(--soft-line);
+      border-radius: 6px;
+      background: var(--panel-3);
+      padding: 7px 9px;
+    }
+
+    .option-list.compact {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .option-list.compact .check-row {
+      align-items: center;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar.compact button {
+      min-height: 32px;
+      padding: 0 10px;
+      font-size: 12px;
+    }
+
+    .action-bar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--soft-line);
+      border-radius: 6px;
+      background: #171a20;
+      padding: 10px;
+    }
+
+    .action-group,
+    .run-group,
+    .selection-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .run-group {
+      justify-content: flex-end;
+    }
+
+    .action-group button,
+    .action-group .file-button,
+    .run-group button,
+    .selection-actions button {
+      min-width: 0;
+    }
+
+    .group-search-row {
+      display: grid;
+      grid-template-columns: minmax(260px, 460px) minmax(180px, 1fr);
+      gap: 10px;
+      align-items: center;
+    }
+
+    .group-search {
+      min-width: 0;
+    }
+
+    .context-line {
+      min-width: 0;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .meta-line {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      min-height: 16px;
+    }
+
+    .file-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
+
+    .file-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      border: 1px solid var(--soft-line);
+      border-radius: 6px;
+      background: var(--panel);
+      padding: 12px;
+      min-width: 0;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 22px;
+      line-height: 1.15;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 3px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .tabs {
+      display: inline-grid;
+      grid-auto-flow: column;
+      gap: 4px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #0d0f13;
+      padding: 4px;
+    }
+
+    .tab {
+      border: 0;
+      min-height: 30px;
+      padding: 0 10px;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .tab.active {
+      background: var(--panel-2);
+      color: var(--text);
+    }
+
+    .groups-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      flex: 1 1 auto;
+      border: 1px solid var(--soft-line);
+      border-radius: 6px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+
+    .selection-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 10px;
+      border-bottom: 1px solid var(--soft-line);
+      background: #15181d;
+    }
+
+    .table-wrap {
+      flex: 1 1 auto;
+      min-height: 260px;
+      min-width: 0;
+      overflow: auto;
+      background: var(--panel);
+      scrollbar-width: thin;
+    }
+
+    table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    thead {
+      background: #151a20;
+    }
+
+    tbody {
+      display: table-row-group;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--soft-line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: middle;
+      font-size: 13px;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #151a20;
+    }
+
+    tr:hover td { background: rgba(255, 255, 255, 0.025); }
+
+    tr.selected td {
+      background: rgba(90, 167, 255, 0.07);
+    }
+
+    tr.selected:hover td {
+      background: rgba(90, 167, 255, 0.11);
+    }
+
+    .provider-name,
+    .group-name,
+    .sample {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .provider-name {
+      color: var(--muted);
+    }
+
+    .group-name {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .sample { color: var(--muted); }
+    .count {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .type-pick {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .pick {
+      display: inline-grid;
+      place-items: center;
+      width: 30px;
+      min-height: 30px;
+      height: 30px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0d0f13;
+      color: var(--muted);
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 12px;
+      user-select: none;
+    }
+
+    .pick.movie.on {
+      border-color: var(--blue);
+      color: #d9edff;
+      background: rgba(90, 167, 255, 0.2);
+    }
+
+    .pick.series.on {
+      border-color: var(--green);
+      color: #daf8e7;
+      background: rgba(70, 202, 131, 0.2);
+    }
+
+    .pick.disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .empty-state {
+      padding: 30px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .outputs {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 100%;
+      min-width: 0;
+    }
+
+    .output-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .output-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .output-tabs button {
+      flex: 0 0 auto;
+      min-height: 32px;
+      padding: 0 10px;
+    }
+
+    .output-tabs button.active {
+      border-color: var(--blue);
+      background: rgba(90, 167, 255, 0.18);
+    }
+
+    .output-box {
+      flex: 1 1 auto;
+      min-height: 280px;
+      resize: none;
+      font-size: 12px;
+      border-color: var(--soft-line);
+    }
+
+    .output-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    }
+
+    .muted { color: var(--muted); }
+
+    @media (max-width: 1500px) {
+      main {
+        grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
+        grid-template-rows: minmax(560px, calc(100vh - 64px)) minmax(360px, 48vh);
+        overflow: auto;
+      }
+
+      .right {
+        grid-column: 1 / -1;
+        border-left: 0;
+        border-top: 1px solid var(--line);
+        min-height: 360px;
+      }
+
+      .outputs { min-height: 360px; }
+    }
+
+    @media (max-width: 860px) {
+      body {
+        height: auto;
+        min-height: 100vh;
+        overflow: auto;
+      }
+
+      .app {
+        height: auto;
+        min-height: 100vh;
+      }
+
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: none;
+        overflow: visible;
+      }
+      .left { border-right: 0; border-bottom: 1px solid var(--line); }
+      .left,
+      .center,
+      .right {
+        overflow: visible;
+      }
+      .center { min-height: 720px; }
+      .action-bar,
+      .group-search-row {
+        grid-template-columns: 1fr;
+      }
+      .run-group { justify-content: flex-start; }
+      .context-line { text-align: left; }
+      .grid-2,
+      .grid-3,
+      .summary { grid-template-columns: 1fr; }
+      .output-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      header {
+        display: grid;
+        align-items: start;
+        padding: 14px;
+      }
+      .header-actions {
+        justify-content: flex-start;
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+      .status { text-align: left; }
+      .option-list.compact { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <h1>VOD STRM Builder</h1>
+        <div class="brand-subtitle">Library Control</div>
+      </div>
+      <div class="header-actions">
+        <button class="save-button" id="saveSettings" type="button">Save Settings</button>
+        <div class="status" id="status">Ready</div>
+      </div>
+    </header>
+    <div class="progress-area" id="progressArea" hidden>
+      <div class="progress-copy">
+        <span class="progress-label" id="progressLabel">Working</span>
+        <span class="progress-percent" id="progressPercent"></span>
+      </div>
+      <div class="progress-track" aria-hidden="true">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+    </div>
+
+    <main>
+      <aside class="left">
+        <section class="section">
+          <h2>Providers</h2>
+          <div class="provider-list" id="providerList"></div>
+          <div class="toolbar compact">
+            <button id="addProvider" type="button">Add</button>
+            <button id="duplicateProvider" type="button">Duplicate</button>
+            <button id="removeProvider" type="button">Remove</button>
+          </div>
+          <label>Name
+            <input id="providerName" type="text" value="Provider 1">
+          </label>
+          <label>Server URL
+            <input id="serverUrl" type="url" placeholder="http://provider.example.com">
+          </label>
+          <div class="grid-2">
+            <label>Username
+              <input id="username" type="text" autocomplete="off">
+            </label>
+            <label>Password
+              <input id="password" type="password" autocomplete="off">
+            </label>
+          </div>
+          <label>M3U URL Override
+            <input id="m3uUrl" type="url" placeholder="optional">
+          </label>
+          <label>User Agent
+            <input id="userAgent" type="text" value="TiviMate/5.1.6 (Android 12)">
+          </label>
+          <div class="option-list">
+            <label class="check-row">
+              <input id="inlineSecrets" type="checkbox">
+              Put secrets directly in config.yml
+            </label>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Output</h2>
+          <label>Movies Directory
+            <input id="moviesDir" type="text" value="/media/movies">
+          </label>
+          <label>TV Directory
+            <input id="seriesDir" type="text" value="/media/tvshows">
+          </label>
+          <div class="grid-2">
+            <label>Selected Groups File
+              <input id="groupsFile" type="text" value="selected-groups.json">
+            </label>
+            <label>Catalog File
+              <input id="catalogFile" type="text" placeholder="optional">
+            </label>
+          </div>
+          <div class="option-list compact">
+            <label class="check-row"><input id="appendTmdb" type="checkbox" checked> Append TMDB ID</label>
+            <label class="check-row"><input id="generateNfo" type="checkbox" checked> Generate NFO</label>
+            <label class="check-row"><input id="dryRun" type="checkbox" checked> Dry run</label>
+            <label class="check-row"><input id="incrementalUpdate" type="checkbox" checked> Incremental update</label>
+            <label class="check-row"><input id="cleanupMissing" type="checkbox"> Remove missing content</label>
+            <label class="check-row"><input id="cleanOutput" type="checkbox"> Clean output first</label>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Scheduler</h2>
+          <div class="option-list">
+            <label class="check-row"><input id="schedulerEnabled" type="checkbox"> Enable automatic runs</label>
+          </div>
+          <div class="grid-2">
+            <label>Interval (hours)
+              <input id="schedulerIntervalHours" type="number" min="1" max="720" step="1" value="24">
+            </label>
+            <div class="option-list">
+              <label class="check-row"><input id="schedulerSyncBeforeRun" type="checkbox" checked> Sync first</label>
+            </div>
+          </div>
+          <div class="meta-line" id="schedulerStatus">Scheduler disabled</div>
+        </section>
+
+        <section class="section">
+          <h2>Series</h2>
+          <div class="option-list">
+            <label class="check-row"><input id="requireSelectedGroup" type="checkbox" checked> Require selected M3U group</label>
+          </div>
+          <label>Quality Words
+            <input id="qualityWords" type="text" value="4k, uhd, fhd, hd">
+          </label>
+        </section>
+
+        <section class="section">
+          <h2>TMDB</h2>
+          <div class="option-list">
+            <label class="check-row"><input id="tmdbEnabled" type="checkbox"> Enable lookup fallback</label>
+          </div>
+          <label>API Key / Token
+            <input id="tmdbKey" type="password" autocomplete="off">
+          </label>
+          <div class="grid-2">
+            <label>Language
+              <input id="tmdbLanguage" type="text" value="en-US">
+            </label>
+            <label>Min Score
+              <input id="tmdbMinScore" type="number" min="0" max="1" step="0.01" value="0.58">
+            </label>
+          </div>
+          <label>Cache File
+            <input id="tmdbCache" type="text" value=".tmdb-cache.json">
+          </label>
+          <div class="option-list compact">
+            <label class="check-row"><input id="tmdbMissingOnly" type="checkbox" checked> Lookup missing only</label>
+            <label class="check-row"><input id="tmdbFailOnError" type="checkbox"> Fail on TMDB errors</label>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Jellyfin</h2>
+          <div class="option-list">
+            <label class="check-row"><input id="jellyfinEnabled" type="checkbox"> Enable scan</label>
+          </div>
+          <label>Server URL
+            <input id="jellyfinUrl" type="url" placeholder="http://jellyfin.example.com:8096">
+          </label>
+          <label>API Key
+            <input id="jellyfinKey" type="password" autocomplete="off">
+          </label>
+          <label>Library Item IDs
+            <input id="jellyfinItemIds" type="text" placeholder="optional, comma separated">
+          </label>
+          <div class="option-list">
+            <label class="check-row"><input id="jellyfinScan" type="checkbox" checked> Scan on complete</label>
+          </div>
+        </section>
+      </aside>
+
+      <section class="center">
+        <div class="workbench">
+          <div class="action-bar">
+            <div class="action-group">
+              <button id="buildM3uUrl" type="button">Build M3U URL</button>
+              <button id="fetchM3u" type="button">Fetch Groups</button>
+              <button id="syncPlaylists" type="button">Sync Playlists</button>
+              <label class="file-button">Open M3U
+                <input class="file-input" id="fileInput" type="file" accept=".m3u,.m3u8,.txt">
+              </label>
+              <button id="pasteToggle" type="button">Paste</button>
+            </div>
+            <div class="run-group">
+              <button class="primary" id="runGenerate" type="button">Run Generator</button>
+              <button id="cancelGenerate" type="button" disabled>Cancel</button>
+            </div>
+          </div>
+
+          <div class="group-search-row">
+            <input class="group-search" id="searchInput" type="search" placeholder="Search group names">
+            <div class="context-line" id="visibleCount">No playlist loaded</div>
+          </div>
+
+          <div class="section" id="pastePanel" style="display: none; margin-bottom: 0;">
+            <textarea id="pasteInput" spellcheck="false" placeholder="#EXTM3U"></textarea>
+            <div class="toolbar">
+              <button class="primary" id="parsePaste" type="button">Parse Playlist</button>
+              <button id="clearPaste" type="button">Clear</button>
+            </div>
+          </div>
+
+          <div class="summary">
+            <div class="metric"><strong id="groupCount">0</strong><span>Groups</span></div>
+            <div class="metric"><strong id="movieCount">0</strong><span>Movie Entries</span></div>
+            <div class="metric"><strong id="seriesCount">0</strong><span>Series Entries</span></div>
+            <div class="metric"><strong id="selectedCount">0</strong><span>Selected Groups</span></div>
+          </div>
+        </div>
+
+        <div class="groups-panel">
+          <div class="selection-bar">
+            <div class="tabs" aria-label="Group filters">
+              <button class="tab active" type="button" data-filter="all">All</button>
+              <button class="tab" type="button" data-filter="movies">Movies</button>
+              <button class="tab" type="button" data-filter="series">Series</button>
+              <button class="tab" type="button" data-filter="selected">Selected</button>
+            </div>
+            <div class="selection-actions">
+              <button id="selectVisibleMovies" type="button" disabled>Select Movies</button>
+              <button id="selectVisibleSeries" type="button" disabled>Select Series</button>
+              <button id="clearVisible" type="button" disabled>Clear Visible</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 18%">Provider</th>
+                  <th style="width: 28%">Group</th>
+                  <th style="width: 116px">Use</th>
+                  <th style="width: 86px" class="count">Movies</th>
+                  <th style="width: 86px" class="count">Series</th>
+                  <th style="width: 70px" class="count">Live</th>
+                  <th>Sample</th>
+                </tr>
+              </thead>
+              <tbody id="groupRows">
+                <tr><td colspan="7"><div class="empty-state">Open or paste a playlist</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <aside class="right">
+        <div class="outputs">
+          <div class="output-header">
+            <h2>Generated Files</h2>
+          </div>
+          <div class="output-tabs">
+            <button class="active" type="button" data-output="config">config.yml</button>
+            <button type="button" data-output="groups">groups.json</button>
+            <button type="button" data-output="env">.env</button>
+            <button type="button" data-output="command">command</button>
+            <button type="button" data-output="log">log</button>
+          </div>
+          <textarea class="output-box" id="outputText" spellcheck="false" readonly></textarea>
+          <div class="toolbar output-actions">
+            <button class="primary" id="downloadCurrent" type="button">Download</button>
+            <button id="downloadAll" type="button">Download All</button>
+            <button id="copyCurrent" type="button">Copy</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    const state = {
+      providers: [],
+      activeProviderId: "",
+      providerSources: new Map(),
+      groups: [],
+      selectedMovies: new Set(),
+      selectedSeries: new Set(),
+      filter: "all",
+      search: "",
+      activeOutput: "config",
+      currentJobId: null,
+      jobLog: "",
+      jobStatus: null,
+      pollTimer: null,
+      progressHideTimer: null,
+      progressTimer: null,
+      progressValue: 0,
+      groupSource: "m3u",
+      schedulerTimer: null,
+    };
+
+    const ids = [
+      "providerName", "serverUrl", "username", "password", "m3uUrl", "userAgent", "inlineSecrets",
+      "moviesDir", "seriesDir", "groupsFile", "catalogFile", "appendTmdb", "generateNfo",
+      "dryRun", "incrementalUpdate", "cleanupMissing", "cleanOutput", "schedulerEnabled",
+      "schedulerIntervalHours", "schedulerSyncBeforeRun", "requireSelectedGroup", "qualityWords", "tmdbEnabled",
+      "tmdbKey", "tmdbLanguage", "tmdbMinScore", "tmdbCache", "tmdbMissingOnly",
+      "tmdbFailOnError", "jellyfinEnabled", "jellyfinUrl", "jellyfinKey",
+      "jellyfinItemIds", "jellyfinScan"
+    ];
+    const form = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+    const providerFieldIds = ["providerName", "serverUrl", "username", "password", "m3uUrl", "userAgent"];
+    const els = {
+      status: document.getElementById("status"),
+      progressArea: document.getElementById("progressArea"),
+      progressFill: document.getElementById("progressFill"),
+      progressLabel: document.getElementById("progressLabel"),
+      progressPercent: document.getElementById("progressPercent"),
+      schedulerStatus: document.getElementById("schedulerStatus"),
+      saveSettings: document.getElementById("saveSettings"),
+      providerList: document.getElementById("providerList"),
+      addProvider: document.getElementById("addProvider"),
+      duplicateProvider: document.getElementById("duplicateProvider"),
+      removeProvider: document.getElementById("removeProvider"),
+      fileInput: document.getElementById("fileInput"),
+      pastePanel: document.getElementById("pastePanel"),
+      pasteInput: document.getElementById("pasteInput"),
+      pasteToggle: document.getElementById("pasteToggle"),
+      parsePaste: document.getElementById("parsePaste"),
+      clearPaste: document.getElementById("clearPaste"),
+      buildM3uUrl: document.getElementById("buildM3uUrl"),
+      fetchM3u: document.getElementById("fetchM3u"),
+      syncPlaylists: document.getElementById("syncPlaylists"),
+      runGenerate: document.getElementById("runGenerate"),
+      cancelGenerate: document.getElementById("cancelGenerate"),
+      searchInput: document.getElementById("searchInput"),
+      visibleCount: document.getElementById("visibleCount"),
+      groupRows: document.getElementById("groupRows"),
+      groupCount: document.getElementById("groupCount"),
+      movieCount: document.getElementById("movieCount"),
+      seriesCount: document.getElementById("seriesCount"),
+      selectedCount: document.getElementById("selectedCount"),
+      selectVisibleMovies: document.getElementById("selectVisibleMovies"),
+      selectVisibleSeries: document.getElementById("selectVisibleSeries"),
+      clearVisible: document.getElementById("clearVisible"),
+      outputText: document.getElementById("outputText"),
+      downloadCurrent: document.getElementById("downloadCurrent"),
+      downloadAll: document.getElementById("downloadAll"),
+      copyCurrent: document.getElementById("copyCurrent"),
+    };
+
+    window.addEventListener("error", (event) => {
+      showError(event.error || event.message || "Unexpected browser error");
+    });
+
+    window.addEventListener("unhandledrejection", (event) => {
+      showError(event.reason || "Unexpected browser error");
+    });
+
+    for (const element of Object.values(form)) {
+      element.addEventListener("input", render);
+      element.addEventListener("change", render);
+    }
+
+    for (const id of providerFieldIds) {
+      form[id].addEventListener("input", () => {
+        syncActiveProviderFromForm();
+        renderProviders();
+        render();
+      });
+      form[id].addEventListener("change", () => {
+        syncActiveProviderFromForm();
+        renderProviders();
+        render();
+      });
+    }
+
+    els.addProvider.addEventListener("click", () => {
+      syncActiveProviderFromForm();
+      const provider = createProvider({name: `Provider ${state.providers.length + 1}`});
+      state.providers.push(provider);
+      selectProvider(provider.id);
+      quickProgress("Provider added");
+    });
+
+    els.duplicateProvider.addEventListener("click", () => {
+      syncActiveProviderFromForm();
+      const active = activeProvider();
+      const provider = createProvider({...active, id: "", name: `${active.name || "Provider"} Copy`});
+      state.providers.push(provider);
+      selectProvider(provider.id);
+      quickProgress("Provider duplicated");
+    });
+
+    els.removeProvider.addEventListener("click", () => {
+      if (state.providers.length <= 1) return;
+      const removed = state.activeProviderId;
+      state.providers = state.providers.filter((provider) => provider.id !== removed);
+      state.groups = state.groups.filter((group) => group.providerId !== removed);
+      for (const set of [state.selectedMovies, state.selectedSeries]) {
+        for (const key of Array.from(set)) {
+          if (providerIdFromKey(key) === removed) set.delete(key);
+        }
+      }
+      selectProvider(state.providers[0].id);
+      quickProgress("Provider removed");
+    });
+
+    els.saveSettings.addEventListener("click", async () => {
+      await withProgress("Saving settings...", async () => {
+        syncActiveProviderFromForm();
+        await apiJson("/api/settings", {
+          settings: settingsPayload(),
+          selected_groups: selectedGroupsPayload(),
+        });
+      }, "Settings saved");
+      await refreshSchedulerStatus();
+    });
+
+    els.fileInput.addEventListener("change", async () => {
+      const file = els.fileInput.files && els.fileInput.files[0];
+      if (!file) return;
+      const data = await withProgress(`Uploading ${file.name}...`, async (setPercent) => {
+        const body = new FormData();
+        body.append("file", file);
+        body.append("payload", JSON.stringify(settingsPayload()));
+        return apiForm("/api/playlist/upload", body, (ratio) => {
+          setPercent(10 + (ratio * 70), `Uploading ${file.name}...`);
+        });
+      }, "Playlist uploaded", {start: 5, ceiling: 92});
+      if (data) loadGroups(data, file.name);
+    });
+
+    els.pasteToggle.addEventListener("click", () => {
+      els.pastePanel.style.display = els.pastePanel.style.display === "none" ? "grid" : "none";
+      if (els.pastePanel.style.display === "grid") els.pasteInput.focus();
+    });
+
+    els.parsePaste.addEventListener("click", async () => {
+      const data = await withProgress("Parsing pasted playlist...", async () => {
+        return apiJson("/api/playlist/text", {...settingsPayload(), text: els.pasteInput.value});
+      }, "Playlist parsed");
+      if (data) loadGroups(data, "pasted playlist");
+    });
+
+    els.clearPaste.addEventListener("click", () => {
+      els.pasteInput.value = "";
+      els.pasteInput.focus();
+      quickProgress("Paste cleared");
+    });
+
+    els.buildM3uUrl.addEventListener("click", () => {
+      form.m3uUrl.value = buildM3uUrl();
+      syncActiveProviderFromForm();
+      render();
+      quickProgress("M3U URL built");
+    });
+
+    els.fetchM3u.addEventListener("click", async () => {
+      syncProviderPlaylists("Fetching playlist...", "fetched playlist");
+    });
+
+    els.syncPlaylists.addEventListener("click", async () => {
+      syncProviderPlaylists("Syncing playlists...", "synced playlists");
+    });
+
+    els.searchInput.addEventListener("input", () => {
+      state.search = els.searchInput.value.trim().toLowerCase();
+      render();
+    });
+
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
+        tab.classList.add("active");
+        state.filter = tab.dataset.filter;
+        render();
+      });
+    });
+
+    document.querySelectorAll("[data-output]").forEach((button) => {
+      button.addEventListener("click", () => {
+        selectOutput(button.dataset.output);
+      });
+    });
+
+    els.selectVisibleMovies.addEventListener("click", () => {
+      visibleGroups().forEach((group) => {
+        if (group.movieCount > 0) state.selectedMovies.add(group.key);
+      });
+      render();
+      quickProgress("Visible movie groups selected");
+    });
+
+    els.selectVisibleSeries.addEventListener("click", () => {
+      visibleGroups().forEach((group) => {
+        if (group.seriesCount > 0) state.selectedSeries.add(group.key);
+      });
+      render();
+      quickProgress("Visible series groups selected");
+    });
+
+    els.clearVisible.addEventListener("click", () => {
+      visibleGroups().forEach((group) => {
+        state.selectedMovies.delete(group.key);
+        state.selectedSeries.delete(group.key);
+      });
+      render();
+      quickProgress("Visible groups cleared");
+    });
+
+    els.runGenerate.addEventListener("click", async () => {
+      startManagedProgress("Starting generator...", {start: 1, ceiling: 4, intervalMs: 350});
+      let data = null;
+      try {
+        data = await apiJson("/api/generate", {
+          settings: settingsPayload(),
+          selected_groups: selectedGroupsPayload(),
+        });
+      } catch (error) {
+        failProgress(error);
+        return;
+      }
+      stopProgressMotion();
+      if (data) {
+        state.currentJobId = data.id;
+        state.jobStatus = data;
+        state.jobLog = "";
+        selectOutput("log");
+        updateJobProgress(data);
+        pollJob();
+      }
+    });
+
+    els.cancelGenerate.addEventListener("click", async () => {
+      if (!state.currentJobId) return;
+      const data = await withProgress("Cancelling generator...", async () => {
+        return apiJson(`/api/jobs/${state.currentJobId}/cancel`, {});
+      }, "Generator cancelled");
+      if (data) {
+        state.jobStatus = data;
+        await refreshJobLog();
+        updateJobProgress(data);
+        render();
+      }
+    });
+
+    els.downloadCurrent.addEventListener("click", () => {
+      downloadText(outputName(state.activeOutput), outputValue(state.activeOutput));
+      quickProgress("Download started");
+    });
+
+    els.downloadAll.addEventListener("click", () => {
+      for (const key of ["config", "groups", "env", "command", "log"]) {
+        downloadText(outputName(key), outputValue(key));
+      }
+      quickProgress("Downloads started");
+    });
+
+    els.copyCurrent.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(outputValue(state.activeOutput));
+        quickProgress("Copied");
+      } catch {
+        els.outputText.select();
+        document.execCommand("copy");
+        quickProgress("Copied");
+      }
+    });
+
+    async function apiJson(url, payload) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload),
+      });
+      return readApiResponse(response);
+    }
+
+    async function apiForm(url, body, onUploadProgress = null) {
+      if (onUploadProgress) {
+        return apiFormWithUploadProgress(url, body, onUploadProgress);
+      }
+      const response = await fetch(url, {method: "POST", body});
+      return readApiResponse(response);
+    }
+
+    function apiFormWithUploadProgress(url, body, onUploadProgress) {
+      return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open("POST", url);
+        request.upload.addEventListener("progress", (event) => {
+          if (event.lengthComputable && event.total > 0) {
+            onUploadProgress(event.loaded / event.total);
+          }
+        });
+        request.addEventListener("load", () => {
+          const contentType = request.getResponseHeader("content-type") || "";
+          let data = null;
+          try {
+            data = contentType.includes("application/json") ? JSON.parse(request.responseText) : {error: request.responseText};
+          } catch {
+            data = {error: request.responseText || "Invalid server response"};
+          }
+          if (request.status < 200 || request.status >= 300) {
+            reject(new Error(data.error || `HTTP ${request.status}`));
+          } else {
+            resolve(data);
+          }
+        });
+        request.addEventListener("error", () => reject(new Error("Upload failed")));
+        request.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+        request.send(body);
+      });
+    }
+
+    async function apiGet(url) {
+      const response = await fetch(url);
+      return readApiResponse(response);
+    }
+
+    async function readApiResponse(response) {
+      const contentType = response.headers.get("content-type") || "";
+      const data = contentType.includes("application/json") ? await response.json() : {error: await response.text()};
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      return data;
+    }
+
+    async function syncProviderPlaylists(statusText, sourceName) {
+      const data = await withProgress(statusText, async () => {
+        return apiJson("/api/playlist/fetch", {
+          ...settingsPayload(),
+          selected_groups: selectedGroupsPayload(),
+        });
+      }, "Playlist synced");
+      if (data) {
+        loadGroups(data, sourceName);
+      }
+    }
+
+    function createProvider(overrides = {}) {
+      return {
+        id: overrides.id || newId(),
+        name: overrides.name || "Provider",
+        server_url: overrides.server_url || "",
+        username: overrides.username || "",
+        password: overrides.password || "",
+        m3u_url: overrides.m3u_url || "",
+        user_agent: overrides.user_agent || "TiviMate/5.1.6 (Android 12)",
+        source: overrides.source || overrides.catalog_source || "m3u",
+        series_source: overrides.series_source || "m3u",
+      };
+    }
+
+    function newId() {
+      if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+      return `provider-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    }
+
+    function ensureProvider() {
+      if (state.providers.length === 0) {
+        state.providers.push(createProvider({id: "default", name: "Provider 1"}));
+      }
+      if (!state.activeProviderId || !state.providers.some((provider) => provider.id === state.activeProviderId)) {
+        state.activeProviderId = state.providers[0].id;
+      }
+    }
+
+    function activeProvider() {
+      ensureProvider();
+      return state.providers.find((provider) => provider.id === state.activeProviderId) || state.providers[0];
+    }
+
+    function syncActiveProviderFromForm() {
+      ensureProvider();
+      const provider = activeProvider();
+      provider.name = form.providerName.value.trim() || "Provider";
+      provider.server_url = form.serverUrl.value.trim();
+      provider.username = form.username.value;
+      provider.password = form.password.value;
+      provider.m3u_url = form.m3uUrl.value.trim();
+      provider.user_agent = form.userAgent.value.trim() || "TiviMate/5.1.6 (Android 12)";
+    }
+
+    function applyProviderToForm(provider) {
+      form.providerName.value = provider.name || "Provider";
+      form.serverUrl.value = provider.server_url || "";
+      form.username.value = provider.username || "";
+      form.password.value = provider.password || "";
+      form.m3uUrl.value = provider.m3u_url || "";
+      form.userAgent.value = provider.user_agent || "TiviMate/5.1.6 (Android 12)";
+    }
+
+    function selectProvider(id) {
+      state.activeProviderId = id;
+      applyProviderToForm(activeProvider());
+      renderProviders();
+      render();
+    }
+
+    function renderProviders() {
+      ensureProvider();
+      els.removeProvider.disabled = state.providers.length <= 1;
+      els.providerList.replaceChildren(...state.providers.map((provider) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `provider-item${provider.id === state.activeProviderId ? " active" : ""}`;
+        button.title = provider.server_url || provider.m3u_url || provider.name;
+        button.addEventListener("click", () => {
+          syncActiveProviderFromForm();
+          selectProvider(provider.id);
+        });
+        const name = document.createElement("span");
+        name.textContent = provider.name || "Provider";
+        const counts = providerCounts(provider.id);
+        const meta = document.createElement("small");
+        meta.textContent = `${counts.groups.toLocaleString()} groups`;
+        button.append(name, meta);
+        return button;
+      }));
+    }
+
+    function providerCounts(providerId) {
+      const groups = state.groups.filter((group) => group.providerId === providerId);
+      return {groups: groups.length};
+    }
+
+    function providersPayload() {
+      return state.providers.map((provider) => {
+        const source = state.providerSources.get(provider.id) || provider.source || "m3u";
+        return {
+          id: provider.id,
+          name: provider.name || "Provider",
+          server_url: provider.server_url || "",
+          username: provider.username || "",
+          password: provider.password || "",
+          m3u_url: provider.m3u_url || "",
+          user_agent: provider.user_agent || "TiviMate/5.1.6 (Android 12)",
+          source,
+          catalog_source: source,
+          series_source: source === "xtream_api" ? "api" : (provider.series_source || "m3u"),
+        };
+      });
+    }
+
+    function settingsPayload() {
+      syncActiveProviderFromForm();
+      return {
+        providers: providersPayload(),
+        active_provider_id: state.activeProviderId,
+        series_source: state.groupSource === "xtream_api" ? "api" : "m3u",
+        movies_dir: form.moviesDir.value.trim(),
+        series_dir: form.seriesDir.value.trim(),
+        catalog_file: form.catalogFile.value.trim(),
+        append_tmdb: form.appendTmdb.checked,
+        generate_nfo: form.generateNfo.checked,
+        dry_run: form.dryRun.checked,
+        incremental_update: form.incrementalUpdate.checked,
+        cleanup_missing: form.cleanupMissing.checked,
+        clean_output: form.cleanOutput.checked,
+        scheduler_enabled: form.schedulerEnabled.checked,
+        scheduler_interval_hours: Number(form.schedulerIntervalHours.value || 24),
+        scheduler_sync_before_run: form.schedulerSyncBeforeRun.checked,
+        require_selected_group: form.requireSelectedGroup.checked,
+        quality_words: csv(form.qualityWords.value),
+        tmdb_enabled: form.tmdbEnabled.checked,
+        tmdb_key: form.tmdbKey.value,
+        tmdb_language: form.tmdbLanguage.value.trim() || "en-US",
+        tmdb_min_score: Number(form.tmdbMinScore.value || 0.58),
+        tmdb_cache: form.tmdbCache.value.trim(),
+        tmdb_missing_only: form.tmdbMissingOnly.checked,
+        tmdb_fail_on_error: form.tmdbFailOnError.checked,
+        jellyfin_enabled: form.jellyfinEnabled.checked,
+        jellyfin_url: form.jellyfinUrl.value.trim(),
+        jellyfin_key: form.jellyfinKey.value,
+        jellyfin_item_ids: csv(form.jellyfinItemIds.value),
+        jellyfin_scan: form.jellyfinScan.checked,
+      };
+    }
+
+    function selectOutput(key) {
+      document.querySelectorAll("[data-output]").forEach((item) => {
+        item.classList.toggle("active", item.dataset.output === key);
+      });
+      state.activeOutput = key;
+      render();
+    }
+
+    async function pollJob() {
+      if (!state.currentJobId) return;
+      window.clearTimeout(state.pollTimer);
+      try {
+        const response = await fetch(`/api/jobs/${state.currentJobId}`);
+        state.jobStatus = await readApiResponse(response);
+        await refreshJobLog();
+        const status = state.jobStatus.status;
+        updateJobProgress(state.jobStatus);
+        if (!["complete", "failed", "cancelled"].includes(status)) {
+          state.pollTimer = window.setTimeout(pollJob, 2000);
+        } else if (status === "complete") {
+          finishProgress("Generator complete");
+        } else if (status === "cancelled") {
+          finishProgress("Generator cancelled");
+        } else {
+          failProgress("Generator failed");
+        }
+      } catch (error) {
+        failProgress(error);
+      }
+      render();
+    }
+
+    async function refreshJobLog() {
+      if (!state.currentJobId) return;
+      const response = await fetch(`/api/jobs/${state.currentJobId}/log`);
+      state.jobLog = await response.text();
+    }
+
+    function updateJobProgress(job) {
+      const progress = job.progress || {};
+      const name = progress.current_provider_name ? `: ${progress.current_provider_name}` : "";
+      const phase = progress.phase_label ? ` - ${progress.phase_label}` : "";
+      const label = `Generator ${job.status}${name}${phase}`;
+      let percent = typeof progress.percent === "number" ? progress.percent : state.progressValue;
+      if (!["complete", "failed", "cancelled"].includes(job.status)) {
+        percent = Math.max(percent, state.progressValue);
+      }
+      updateProgress(label, percent);
+    }
+
+    function loadGroups(data, sourceName) {
+      state.groups = (data.groups || []).map((group) => ({
+        key: group.key || `${group.provider_id || "default"}::${group.name}`,
+        providerId: group.provider_id || "default",
+        providerName: group.provider_name || "Provider 1",
+        providerSource: group.provider_source || data.source || "m3u",
+        name: group.name,
+        movieCount: Number(group.movie_count || 0),
+        seriesCount: Number(group.series_count || 0),
+        liveCount: Number(group.live_count || 0),
+        total: Number(group.total || 0),
+        samples: new Set(group.samples || []),
+      }));
+      state.groupSource = data.source || "m3u";
+      state.providerSources = new Map();
+      for (const group of state.groups) state.providerSources.set(group.providerId, group.providerSource);
+      state.search = "";
+      els.searchInput.value = "";
+      const stats = data.stats || {};
+      const label = state.groupSource === "xtream_api" ? "Xtream API" : sourceName;
+      const suffix = data.playlist_cached ? "cached for generation" : "ready";
+      setStatus(`${label}: ${(stats.groups || state.groups.length).toLocaleString()} groups, ${suffix}`);
+      render();
+    }
+
+    function visibleGroups() {
+      return state.groups.filter((group) => {
+        const haystack = `${group.providerName} ${group.name}`.toLowerCase();
+        if (state.search && !haystack.includes(state.search)) return false;
+        if (state.filter === "movies" && group.movieCount <= 0) return false;
+        if (state.filter === "series" && group.seriesCount <= 0) return false;
+        if (state.filter === "selected" && !state.selectedMovies.has(group.key) && !state.selectedSeries.has(group.key)) return false;
+        return true;
+      });
+    }
+
+    function render() {
+      try {
+        renderProviders();
+        renderSummary();
+        renderRows();
+        renderControlsAndOutput();
+      } catch (error) {
+        showError(error);
+        console.error(error);
+      }
+    }
+
+    function renderControlsAndOutput() {
+      const running = state.jobStatus && !["complete", "failed", "cancelled"].includes(state.jobStatus.status);
+      els.runGenerate.disabled = Boolean(running);
+      els.cancelGenerate.disabled = !running;
+      els.fetchM3u.disabled = Boolean(running);
+      els.syncPlaylists.disabled = Boolean(running);
+      els.outputText.value = outputValue(state.activeOutput);
+    }
+
+    function renderSelectionChange() {
+      try {
+        renderSummary();
+        if (state.filter === "selected") renderRows();
+        renderControlsAndOutput();
+      } catch (error) {
+        showError(error);
+        console.error(error);
+      }
+    }
+
+    function renderSummary() {
+      const totalMovies = state.groups.reduce((sum, group) => sum + group.movieCount, 0);
+      const totalSeries = state.groups.reduce((sum, group) => sum + group.seriesCount, 0);
+      const selected = new Set([...state.selectedMovies, ...state.selectedSeries]);
+      els.groupCount.textContent = state.groups.length.toLocaleString();
+      els.movieCount.textContent = totalMovies.toLocaleString();
+      els.seriesCount.textContent = totalSeries.toLocaleString();
+      els.selectedCount.textContent = selected.size.toLocaleString();
+    }
+
+    function renderRows() {
+      const rows = visibleGroups();
+      const hasGroups = state.groups.length > 0;
+      els.selectVisibleMovies.disabled = rows.length === 0;
+      els.selectVisibleSeries.disabled = rows.length === 0;
+      els.clearVisible.disabled = rows.length === 0;
+      els.visibleCount.textContent = hasGroups
+        ? `${rows.length.toLocaleString()} of ${state.groups.length.toLocaleString()} groups shown`
+        : "No playlist loaded";
+      if (!hasGroups) {
+        els.groupRows.innerHTML = '<tr><td colspan="7"><div class="empty-state">Open or paste a playlist</div></td></tr>';
+        return;
+      }
+      if (rows.length === 0) {
+        els.groupRows.innerHTML = '<tr><td colspan="7"><div class="empty-state">No matching groups</div></td></tr>';
+        return;
+      }
+      els.groupRows.replaceChildren(...rows.map(renderRow));
+    }
+
+    function renderRow(group) {
+      const tr = document.createElement("tr");
+      if (state.selectedMovies.has(group.key) || state.selectedSeries.has(group.key)) {
+        tr.className = "selected";
+      }
+      tr.append(
+        cell(group.providerName, "provider-name"),
+        cell(group.name, "group-name"),
+        selectorCell(group),
+        cell(group.movieCount.toLocaleString(), "count"),
+        cell(group.seriesCount.toLocaleString(), "count"),
+        cell(group.liveCount.toLocaleString(), "count"),
+        cell(Array.from(group.samples).slice(0, 3).join(" | "), "sample")
+      );
+      return tr;
+    }
+
+    function selectorCell(group) {
+      const td = document.createElement("td");
+      const wrap = document.createElement("div");
+      wrap.className = "type-pick";
+      wrap.append(pick(group, "movie"), pick(group, "series"));
+      td.append(wrap);
+      return td;
+    }
+
+    function pick(group, kind) {
+      const set = kind === "movie" ? state.selectedMovies : state.selectedSeries;
+      const count = kind === "movie" ? group.movieCount : group.seriesCount;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `pick ${kind}${set.has(group.key) ? " on" : ""}${count <= 0 ? " disabled" : ""}`;
+      button.title = kind === "movie" ? "Movie group" : "Series group";
+      button.disabled = count <= 0;
+      button.setAttribute("aria-pressed", set.has(group.key) ? "true" : "false");
+      button.addEventListener("click", () => {
+        const selected = !set.has(group.key);
+        if (selected) set.add(group.key);
+        else set.delete(group.key);
+        button.classList.toggle("on", selected);
+        button.setAttribute("aria-pressed", selected ? "true" : "false");
+        const row = button.closest("tr");
+        if (row) row.classList.toggle("selected", state.selectedMovies.has(group.key) || state.selectedSeries.has(group.key));
+        renderSelectionChange();
+        quickProgress(selected ? "Group selected" : "Group deselected");
+      });
+      button.textContent = kind === "movie" ? "M" : "S";
+      return button;
+    }
+
+    function cell(value, className) {
+      const td = document.createElement("td");
+      td.className = className || "";
+      td.textContent = value;
+      td.title = String(value);
+      return td;
+    }
+
+    function selectedGroupsPayload() {
+      const providers = {};
+      for (const provider of state.providers) {
+        providers[provider.id] = {
+          movie_groups: [],
+          series_groups: [],
+          movie_category_ids: [],
+          series_category_ids: [],
+        };
+      }
+      for (const key of state.selectedMovies) {
+        const providerId = providerIdFromKey(key);
+        const groupName = groupNameFromKey(key);
+        if (!providers[providerId]) providers[providerId] = {movie_groups: [], series_groups: [], movie_category_ids: [], series_category_ids: []};
+        providers[providerId].movie_groups.push(groupName);
+      }
+      for (const key of state.selectedSeries) {
+        const providerId = providerIdFromKey(key);
+        const groupName = groupNameFromKey(key);
+        if (!providers[providerId]) providers[providerId] = {movie_groups: [], series_groups: [], movie_category_ids: [], series_category_ids: []};
+        providers[providerId].series_groups.push(groupName);
+      }
+      for (const providerGroups of Object.values(providers)) {
+        providerGroups.movie_groups.sort(localeSort);
+        providerGroups.series_groups.sort(localeSort);
+      }
+      const firstProvider = state.providers[0] && providers[state.providers[0].id] ? providers[state.providers[0].id] : null;
+      return {
+        providers,
+        movie_groups: firstProvider ? firstProvider.movie_groups : [],
+        series_groups: firstProvider ? firstProvider.series_groups : [],
+        movie_category_ids: [],
+        series_category_ids: [],
+      };
+    }
+
+    function providerIdFromKey(key) {
+      return String(key).split("::", 1)[0] || "default";
+    }
+
+    function groupNameFromKey(key) {
+      const text = String(key);
+      const marker = text.indexOf("::");
+      return marker >= 0 ? text.slice(marker + 2) : text;
+    }
+
+    function configYaml() {
+      syncActiveProviderFromForm();
+      const inline = form.inlineSecrets.checked;
+      const providers = providersPayload();
+      const lines = [];
+      if (providers.length === 1) {
+        const provider = providers[0];
+        lines.push("provider:");
+        lines.push(`  server_url: ${yamlString(provider.server_url)}`);
+        if (inline) {
+          lines.push(`  username: ${yamlString(provider.username)}`);
+          lines.push(`  password: ${yamlString(provider.password)}`);
+        } else {
+          lines.push('  username_env: "XTREAM_USERNAME"');
+          lines.push('  password_env: "XTREAM_PASSWORD"');
+        }
+        if (provider.m3u_url) {
+          if (inline) lines.push(`  m3u_url: ${yamlString(provider.m3u_url)}`);
+          else lines.push('  m3u_url_env: "XTREAM_M3U_URL"');
+        }
+        lines.push(`  user_agent: ${yamlString(provider.user_agent)}`);
+      } else {
+        lines.push("providers:");
+        providers.forEach((provider, index) => {
+          const suffix = index + 1;
+          lines.push(`  - id: ${yamlString(provider.id)}`);
+          lines.push(`    name: ${yamlString(provider.name)}`);
+          lines.push(`    server_url: ${yamlString(provider.server_url)}`);
+          if (inline) {
+            lines.push(`    username: ${yamlString(provider.username)}`);
+            lines.push(`    password: ${yamlString(provider.password)}`);
+          } else {
+            lines.push(`    username_env: ${yamlString(`XTREAM_${suffix}_USERNAME`)}`);
+            lines.push(`    password_env: ${yamlString(`XTREAM_${suffix}_PASSWORD`)}`);
+          }
+          if (provider.m3u_url) {
+            if (inline) lines.push(`    m3u_url: ${yamlString(provider.m3u_url)}`);
+            else lines.push(`    m3u_url_env: ${yamlString(`XTREAM_${suffix}_M3U_URL`)}`);
+          }
+          lines.push(`    user_agent: ${yamlString(provider.user_agent)}`);
+          lines.push(`    series_source: ${yamlString(provider.series_source || "m3u")}`);
+        });
+      }
+      lines.push("");
+      lines.push(`selected_groups_file: ${yamlString(form.groupsFile.value.trim() || "selected-groups.json")}`);
+      if (form.catalogFile.value.trim()) lines.push(`catalog_file: ${yamlString(form.catalogFile.value.trim())}`);
+      lines.push("");
+      lines.push("output:");
+      lines.push(`  movies_dir: ${yamlString(form.moviesDir.value.trim())}`);
+      lines.push(`  series_dir: ${yamlString(form.seriesDir.value.trim())}`);
+      lines.push(`  append_tmdb_id: ${bool(form.appendTmdb.checked)}`);
+      lines.push(`  generate_nfo: ${bool(form.generateNfo.checked)}`);
+      lines.push(`  clean: ${bool(form.cleanOutput.checked)}`);
+      lines.push(`  dry_run: ${bool(form.dryRun.checked)}`);
+      lines.push(`  incremental: ${bool(form.incrementalUpdate.checked)}`);
+      lines.push(`  cleanup_missing: ${bool(form.cleanupMissing.checked)}`);
+      lines.push('  manifest_file: ".vod-strm-builder-manifest.json"');
+      lines.push("");
+      lines.push("filters:");
+      lines.push("  movie_groups: []");
+      lines.push("  series_groups: []");
+      lines.push("  movie_category_ids: []");
+      lines.push("  series_category_ids: []");
+      lines.push("");
+      lines.push("series:");
+      lines.push(`  source: ${yamlString(state.groupSource === "xtream_api" ? "api" : "m3u")}`);
+      lines.push(`  require_selected_m3u_group: ${bool(form.requireSelectedGroup.checked)}`);
+      lines.push(`  quality_words: [${csv(form.qualityWords.value).map(yamlString).join(", ")}]`);
+      lines.push("");
+      lines.push("tmdb:");
+      lines.push(`  enabled: ${bool(form.tmdbEnabled.checked)}`);
+      if (inline && form.tmdbKey.value) lines.push(`  api_key: ${yamlString(form.tmdbKey.value)}`);
+      else lines.push('  api_key_env: "TMDB_API_KEY"');
+      lines.push(`  language: ${yamlString(form.tmdbLanguage.value.trim() || "en-US")}`);
+      if (form.tmdbCache.value.trim()) lines.push(`  cache_file: ${yamlString(form.tmdbCache.value.trim())}`);
+      lines.push(`  lookup_missing_only: ${bool(form.tmdbMissingOnly.checked)}`);
+      lines.push(`  min_score: ${Number(form.tmdbMinScore.value || 0.58)}`);
+      lines.push(`  fail_on_error: ${bool(form.tmdbFailOnError.checked)}`);
+      lines.push("");
+      lines.push("jellyfin:");
+      lines.push(`  enabled: ${bool(form.jellyfinEnabled.checked)}`);
+      if (form.jellyfinUrl.value.trim()) lines.push(`  server_url: ${yamlString(form.jellyfinUrl.value.trim())}`);
+      if (inline && form.jellyfinKey.value) lines.push(`  api_key: ${yamlString(form.jellyfinKey.value)}`);
+      else lines.push('  api_key_env: "JELLYFIN_API_KEY"');
+      lines.push(`  scan_on_complete: ${bool(form.jellyfinScan.checked)}`);
+      lines.push(`  library_item_ids: [${csv(form.jellyfinItemIds.value).map(yamlString).join(", ")}]`);
+      return lines.join("\n") + "\n";
+    }
+
+    function envText() {
+      syncActiveProviderFromForm();
+      const providers = providersPayload();
+      const pairs = [];
+      providers.forEach((provider, index) => {
+        const suffix = providers.length === 1 ? "XTREAM" : `XTREAM_${index + 1}`;
+        pairs.push([`${suffix}_USERNAME`, provider.username]);
+        pairs.push([`${suffix}_PASSWORD`, provider.password]);
+        if (provider.m3u_url) pairs.push([`${suffix}_M3U_URL`, provider.m3u_url]);
+      });
+      if (form.tmdbKey.value) pairs.push(["TMDB_API_KEY", form.tmdbKey.value]);
+      if (form.jellyfinKey.value) pairs.push(["JELLYFIN_API_KEY", form.jellyfinKey.value]);
+      return pairs.map(([key, value]) => `${key}=${shellQuote(value)}`).join("\n") + "\n";
+    }
+
+    function commandText() {
+      return [
+        "docker compose up -d --build",
+        "open http://localhost:8080",
+      ].join("\n") + "\n";
+    }
+
+    function outputValue(key) {
+      if (key === "groups") return JSON.stringify(selectedGroupsPayload(), null, 2) + "\n";
+      if (key === "env") return envText();
+      if (key === "command") return commandText();
+      if (key === "log") return state.jobLog || "No generator run yet.\n";
+      return configYaml();
+    }
+
+    function outputName(key) {
+      if (key === "groups") return form.groupsFile.value.trim() || "selected-groups.json";
+      if (key === "env") return ".env";
+      if (key === "command") return "run-vod-strm-builder.sh";
+      if (key === "log") return "generate.log";
+      return "config.yml";
+    }
+
+    function buildM3uUrl() {
+      const provider = activeProvider();
+      const base = (provider.server_url || form.serverUrl.value).trim().replace(/\/+$/, "");
+      const user = provider.username || form.username.value;
+      const pass = provider.password || form.password.value;
+      if (!base || !user || !pass) return "";
+      return `${base}/get.php?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}&type=m3u_plus&output=ts`;
+    }
+
+    function yamlString(value) {
+      return JSON.stringify(String(value ?? ""));
+    }
+
+    function shellQuote(value) {
+      return `'${String(value ?? "").replace(/'/g, "'\"'\"'")}'`;
+    }
+
+    function csv(value) {
+      return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+    }
+
+    function bool(value) {
+      return value ? "true" : "false";
+    }
+
+    function localeSort(a, b) {
+      return a.localeCompare(b, undefined, {numeric: true});
+    }
+
+    function downloadText(name, text) {
+      const blob = new Blob([text], {type: "text/plain;charset=utf-8"});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    async function initialize() {
+      state.providers = [createProvider({id: "default", name: "Provider 1"})];
+      state.activeProviderId = state.providers[0].id;
+      applyProviderToForm(state.providers[0]);
+      let rendered = false;
+      let loadedSettings = false;
+      startProgress("Loading settings...", 10);
+      try {
+        const saved = await apiGet("/api/settings");
+        if (saved && Object.keys(saved).length) {
+          applySavedState(saved);
+          loadedSettings = true;
+          setStatus("Settings loaded");
+        }
+      } catch (error) {
+        failProgress(error);
+      }
+      try {
+        updateProgress("Loading cached groups...", 45);
+        const cached = await apiGet("/api/groups");
+        if (cached && Array.isArray(cached.groups) && cached.groups.length) {
+          loadGroups(cached, "cached groups");
+          rendered = true;
+        }
+      } catch (error) {
+        console.warn("Could not load cached groups", error);
+      }
+      if (!rendered) {
+        render();
+        setStatus(loadedSettings ? "Settings loaded" : "Ready");
+      }
+      await refreshSchedulerStatus();
+      state.schedulerTimer = window.setInterval(refreshSchedulerStatus, 30000);
+      finishProgress();
+    }
+
+    function applySavedState(saved) {
+      const settings = saved.settings || saved;
+      const providers = Array.isArray(settings.providers) ? settings.providers : [];
+      state.providers = (providers.length ? providers : [settings]).map((provider, index) => createProvider({
+        id: provider.id || (index === 0 ? "default" : ""),
+        name: provider.name || provider.provider_name || `Provider ${index + 1}`,
+        server_url: provider.server_url || "",
+        username: provider.username || "",
+        password: provider.password || "",
+        m3u_url: provider.m3u_url || "",
+        user_agent: provider.user_agent || "TiviMate/5.1.6 (Android 12)",
+        source: provider.source || provider.catalog_source || (provider.series_source === "api" ? "xtream_api" : "m3u"),
+        series_source: provider.series_source || settings.series_source || "m3u",
+      }));
+      state.providerSources = new Map(state.providers.map((provider) => [provider.id, provider.source || "m3u"]));
+      state.activeProviderId = settings.active_provider_id || state.providers[0].id;
+      ensureProvider();
+      applyProviderToForm(activeProvider());
+      applyGlobalSettings(settings);
+      applySavedSelections(saved.selected_groups || {});
+    }
+
+    function applyGlobalSettings(settings) {
+      setValue(form.moviesDir, settings.movies_dir);
+      setValue(form.seriesDir, settings.series_dir);
+      setValue(form.catalogFile, settings.catalog_file);
+      setChecked(form.appendTmdb, settings.append_tmdb);
+      setChecked(form.generateNfo, settings.generate_nfo);
+      setChecked(form.dryRun, settings.dry_run);
+      setChecked(form.incrementalUpdate, settings.incremental_update !== false);
+      setChecked(form.cleanupMissing, settings.cleanup_missing);
+      setChecked(form.cleanOutput, settings.clean_output);
+      setChecked(form.schedulerEnabled, settings.scheduler_enabled);
+      if (settings.scheduler_interval_hours !== undefined) form.schedulerIntervalHours.value = settings.scheduler_interval_hours;
+      setChecked(form.schedulerSyncBeforeRun, settings.scheduler_sync_before_run !== false);
+      setChecked(form.requireSelectedGroup, settings.require_selected_group);
+      if (Array.isArray(settings.quality_words)) form.qualityWords.value = settings.quality_words.join(", ");
+      setChecked(form.tmdbEnabled, settings.tmdb_enabled);
+      setValue(form.tmdbKey, settings.tmdb_key);
+      setValue(form.tmdbLanguage, settings.tmdb_language);
+      if (settings.tmdb_min_score !== undefined) form.tmdbMinScore.value = settings.tmdb_min_score;
+      setValue(form.tmdbCache, settings.tmdb_cache);
+      setChecked(form.tmdbMissingOnly, settings.tmdb_missing_only);
+      setChecked(form.tmdbFailOnError, settings.tmdb_fail_on_error);
+      setChecked(form.jellyfinEnabled, settings.jellyfin_enabled);
+      setValue(form.jellyfinUrl, settings.jellyfin_url);
+      setValue(form.jellyfinKey, settings.jellyfin_key);
+      if (Array.isArray(settings.jellyfin_item_ids)) form.jellyfinItemIds.value = settings.jellyfin_item_ids.join(", ");
+      setChecked(form.jellyfinScan, settings.jellyfin_scan);
+    }
+
+    function applySavedSelections(selected) {
+      state.selectedMovies = new Set();
+      state.selectedSeries = new Set();
+      const providers = selected.providers || {};
+      for (const [providerId, providerGroups] of Object.entries(providers)) {
+        for (const group of providerGroups.movie_groups || []) state.selectedMovies.add(`${providerId}::${group}`);
+        for (const group of providerGroups.series_groups || []) state.selectedSeries.add(`${providerId}::${group}`);
+      }
+      if (!Object.keys(providers).length) {
+        const first = state.providers[0] ? state.providers[0].id : "default";
+        for (const group of selected.movie_groups || []) state.selectedMovies.add(`${first}::${group}`);
+        for (const group of selected.series_groups || []) state.selectedSeries.add(`${first}::${group}`);
+      }
+    }
+
+    function setValue(element, value) {
+      if (value !== undefined && value !== null) element.value = value;
+    }
+
+    function setChecked(element, value) {
+      if (value !== undefined && value !== null) element.checked = Boolean(value);
+    }
+
+    function startProgress(label, percent = 0) {
+      window.clearTimeout(state.progressHideTimer);
+      stopProgressMotion();
+      els.progressArea.hidden = false;
+      els.progressArea.classList.remove("error");
+      els.progressLabel.textContent = label;
+      setProgressPercent(percent);
+      setStatus(label);
+    }
+
+    function updateProgress(label, percent = null) {
+      window.clearTimeout(state.progressHideTimer);
+      els.progressArea.hidden = false;
+      els.progressArea.classList.remove("error");
+      if (label) {
+        els.progressLabel.textContent = label;
+        setStatus(label);
+      }
+      setProgressPercent(percent === null ? state.progressValue : percent);
+    }
+
+    function finishProgress(message = null) {
+      stopProgressMotion();
+      if (message) setStatus(message);
+      els.progressArea.hidden = false;
+      els.progressArea.classList.remove("error");
+      setProgressPercent(100);
+      els.progressLabel.textContent = message || els.progressLabel.textContent || "Complete";
+      state.progressHideTimer = window.setTimeout(() => {
+        els.progressArea.hidden = true;
+      }, 900);
+    }
+
+    function failProgress(error) {
+      stopProgressMotion();
+      const message = error instanceof Error ? error.message : String(error);
+      els.progressArea.hidden = false;
+      els.progressArea.classList.add("error");
+      setProgressPercent(100);
+      els.progressLabel.textContent = message;
+      showError(error);
+      state.progressHideTimer = window.setTimeout(() => {
+        els.progressArea.hidden = true;
+        els.progressArea.classList.remove("error");
+      }, 1800);
+    }
+
+    async function withProgress(label, action, successMessage = null, options = {}) {
+      startManagedProgress(label, options);
+      try {
+        const result = await action((percent, progressLabel = null) => {
+          updateProgress(progressLabel, percent);
+        });
+        updateProgress(successMessage || label, options.finishAt || 96);
+        finishProgress(successMessage);
+        return result;
+      } catch (error) {
+        failProgress(error);
+        return null;
+      }
+    }
+
+    function quickProgress(message) {
+      setStatus(message);
+    }
+
+    function startManagedProgress(label, options = {}) {
+      const start = options.start ?? 8;
+      const ceiling = Math.max(start, Math.min(options.ceiling ?? 88, 98));
+      const intervalMs = options.intervalMs || 500;
+      startProgress(label, start);
+      state.progressTimer = window.setInterval(() => {
+        const remaining = ceiling - state.progressValue;
+        if (remaining <= 0) {
+          stopProgressMotion();
+          return;
+        }
+        const step = Math.max(1, Math.ceil(remaining * 0.16));
+        updateProgress(null, Math.min(ceiling, state.progressValue + step));
+      }, intervalMs);
+    }
+
+    function stopProgressMotion() {
+      if (state.progressTimer) {
+        window.clearInterval(state.progressTimer);
+        state.progressTimer = null;
+      }
+    }
+
+    function setProgressPercent(percent) {
+      const value = clampPercent(percent);
+      state.progressValue = value;
+      els.progressFill.style.width = `${value}%`;
+      els.progressPercent.textContent = `${value}%`;
+    }
+
+    function clampPercent(value) {
+      return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+    }
+
+    function setStatus(message) {
+      els.status.textContent = message;
+      els.status.classList.remove("error");
+    }
+
+    async function refreshSchedulerStatus() {
+      try {
+        const data = await apiGet("/api/scheduler/status");
+        els.schedulerStatus.textContent = schedulerStatusText(data);
+      } catch (error) {
+        els.schedulerStatus.textContent = "Scheduler status unavailable";
+      }
+    }
+
+    function schedulerStatusText(data) {
+      if (!data || !data.enabled) return "Scheduler disabled";
+      const parts = [`Every ${Number(data.interval_hours || 24).toLocaleString()}h`];
+      if (data.sync_before_run) parts.push("sync first");
+      if (data.running_job_id) parts.push(`running ${data.running_job_id}`);
+      if (data.next_run_at) parts.push(`next ${formatDateTime(data.next_run_at)}`);
+      if (data.last_run_at) parts.push(`last ${formatDateTime(data.last_run_at)}`);
+      if (data.last_error) parts.push(`last error: ${data.last_error}`);
+      return parts.join(" · ");
+    }
+
+    function formatDateTime(value) {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString();
+    }
+
+    function showError(error) {
+      els.status.textContent = error instanceof Error ? error.message : String(error);
+      els.status.classList.add("error");
+    }
+
+    initialize();
+  </script>
+</body>
+</html>

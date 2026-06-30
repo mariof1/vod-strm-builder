@@ -8,9 +8,9 @@ services:
     ports:
       - "18080:8080"
     environment:
-      RUST_LOG: info
+      HOME: /tmp
       VSB_WORK_DIR: /work
-      VSB_BIND: 0.0.0.0:8080
+      PORT: "8080"
     volumes:
       - /opt/vod-strm-builder/work:/work
       - /mnt/strm/movies:/media/movies

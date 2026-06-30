@@ -1,0 +1,14 @@
+{
+  "account": "example",
+  "movie_groups": [
+    "|EN| 4K MOVIES",
+    "|EN| ACTION/THRILLER"
+  ],
+  "series_groups": [
+    "|EN| 4K SERIES",
+    "|EN| NETFLIX"
+  ],
+  "movie_category_ids": [],
+  "series_category_ids": []
+}
+

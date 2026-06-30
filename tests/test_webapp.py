@@ -1,0 +1,456 @@
+from pathlib import Path
+
+import requests
+
+from vod_strm_builder.models import DEFAULT_USER_AGENT, MovieItem, SeriesItem
+from vod_strm_builder.webapp import (
+    AppState,
+    Job,
+    PROGRESS_PREFIX,
+    build_config,
+    create_app,
+    describe_playlist_fetch_error,
+    job_environment,
+    selected_groups_by_provider,
+    settings_providers,
+    xtream_group_summaries,
+)
+
+
+def test_build_config_uses_cached_playlist_and_env_secrets(tmp_path: Path):
+    settings = {
+        "server_url": "http://provider.example.com/",
+        "username": "user",
+        "password": "pass",
+        "movies_dir": "/media/movies",
+        "series_dir": "/media/tvshows",
+        "append_tmdb": True,
+        "generate_nfo": True,
+        "clean_output": False,
+        "dry_run": True,
+        "incremental_update": True,
+        "cleanup_missing": True,
+        "manifest_file": str(tmp_path / "manifest.json"),
+        "require_selected_group": True,
+        "quality_words": ["4k", "hd"],
+        "tmdb_enabled": False,
+        "tmdb_missing_only": True,
+        "jellyfin_enabled": False,
+        "jellyfin_scan": True,
+    }
+    config = build_config(settings, tmp_path / "selected-groups.json", tmp_path / "playlist.m3u")
+    env = job_environment(settings)
+
+    assert config["provider"]["server_url"] == "http://provider.example.com"
+    assert config["provider"]["username_env"] == "XTREAM_USERNAME"
+    assert config["provider"]["m3u_file"] == str(tmp_path / "playlist.m3u")
+    assert config["output"]["movies_dir"] == "/media/movies"
+    assert config["output"]["incremental"] is True
+    assert config["output"]["cleanup_missing"] is True
+    assert config["output"]["manifest_file"] == str(tmp_path / "manifest.json")
+    assert env["XTREAM_USERNAME"] == "user"
+    assert env["XTREAM_PASSWORD"] == "pass"
+
+
+def test_build_config_accepts_api_series_source(tmp_path: Path):
+    settings = {
+        "server_url": "http://provider.example.com/",
+        "username": "user",
+        "password": "pass",
+        "movies_dir": "/media/movies",
+        "series_dir": "/media/tvshows",
+        "series_source": "api",
+        "append_tmdb": True,
+        "generate_nfo": True,
+        "dry_run": True,
+    }
+
+    config = build_config(settings, tmp_path / "selected-groups.json", None)
+
+    assert config["provider"]["user_agent"] == DEFAULT_USER_AGENT
+    assert config["series"]["source"] == "api"
+
+
+def test_api_source_run_ignores_cached_m3u(tmp_path: Path):
+    state = AppState(tmp_path)
+    state.write_and_scan_playlist(
+        "\n".join(
+            [
+                "#EXTM3U",
+                '#EXTINF:-1 group-title="Movies" tvg-name="Film",Film',
+                "http://provider.example.com/movie/user/pass/1.mp4",
+            ]
+        ),
+        "main",
+    )
+
+    runs = state.build_provider_runs(
+        {
+            "providers": [
+                {
+                    "id": "main",
+                    "name": "Main",
+                    "server_url": "http://provider.example.com",
+                    "username": "user",
+                    "password": "secret",
+                    "source": "xtream_api",
+                    "series_source": "api",
+                }
+            ],
+            "movies_dir": "/media/movies",
+            "series_dir": "/media/tvshows",
+        },
+        {"providers": {"main": {"movie_groups": ["Movies"]}}},
+    )
+
+    assert runs[0]["playlist_cache"] is None
+
+
+def test_describe_playlist_fetch_error_hides_url():
+    response = requests.Response()
+    response.status_code = 403
+    response.reason = "Forbidden"
+    response.url = "http://provider.example.com/get.php?username=user&password=secret"
+    error = requests.HTTPError("403 Client Error", response=response)
+
+    message = describe_playlist_fetch_error(error)
+
+    assert message == "Playlist fetch failed for the configured provider: HTTP 403 Forbidden."
+    assert "provider.example.com" not in message
+    assert "secret" not in message
+
+
+def test_fetch_playlist_bad_json_returns_json_error(tmp_path: Path):
+    app = create_app(tmp_path)
+
+    response = app.test_client().post("/api/playlist/fetch", data="{", content_type="application/json")
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "Provider URL, username, and password are required."}
+
+
+def test_settings_api_persists_to_work_dir(tmp_path: Path):
+    app = create_app(tmp_path)
+    payload = {
+        "settings": {
+            "providers": [
+                {
+                    "id": "main",
+                    "name": "Main",
+                    "server_url": "http://provider.example.com",
+                    "username": "user",
+                    "password": "secret",
+                }
+            ],
+            "movies_dir": "/media/movies",
+        },
+        "selected_groups": {"providers": {"main": {"movie_groups": ["Movies"]}}},
+    }
+
+    save_response = app.test_client().post("/api/settings", json=payload)
+    load_response = app.test_client().get("/api/settings")
+
+    assert save_response.status_code == 200
+    assert load_response.get_json() == payload
+    assert (tmp_path / "web-settings.json").exists()
+
+
+def test_scheduler_plan_is_persisted_from_settings(tmp_path: Path):
+    state = AppState(tmp_path)
+    payload = {
+        "settings": {
+            "scheduler_enabled": True,
+            "scheduler_interval_hours": 6,
+            "scheduler_sync_before_run": True,
+        }
+    }
+
+    state.save_settings(payload)
+    state.update_scheduler_plan(payload)
+    status = state.scheduler_status()
+
+    assert status["enabled"] is True
+    assert status["interval_hours"] == 6
+    assert status["sync_before_run"] is True
+    assert status["next_run_at"]
+
+
+def test_job_public_includes_progress(tmp_path: Path):
+    job = Job(
+        job_id="abc123",
+        job_dir=tmp_path,
+        runs=[{"provider_name": "One"}, {"provider_name": "Two"}],
+        summary_path=tmp_path / "summary.json",
+        log_path=tmp_path / "generate.log",
+    )
+
+    assert job.public()["progress"]["percent"] == 0
+
+    job.status = "running"
+    job.current_provider_index = 1
+    job.current_provider_name = "One"
+
+    progress = job.public()["progress"]
+    assert progress["percent"] == 17
+    assert progress["current_provider_name"] == "One"
+    assert progress["total_providers"] == 2
+
+    job.status = "complete"
+    assert job.public()["progress"]["percent"] == 100
+
+
+def test_job_progress_uses_cli_progress_events(tmp_path: Path):
+    job = Job(
+        job_id="abc123",
+        job_dir=tmp_path,
+        runs=[{"provider_name": "One"}, {"provider_name": "Two"}],
+        summary_path=tmp_path / "summary.json",
+        log_path=tmp_path / "generate.log",
+    )
+    job.status = "running"
+    job.current_provider_index = 1
+    job.current_provider_name = "One"
+
+    assert job.apply_progress_line(f'{PROGRESS_PREFIX}{{"label":"Writing movies","percent":44.5}}')
+
+    progress = job.public()["progress"]
+    assert progress["percent"] == 22
+    assert progress["provider_percent"] == 44.5
+    assert progress["phase_label"] == "Writing movies"
+
+
+def test_group_cache_api_persists_last_scan(tmp_path: Path):
+    app = create_app(tmp_path)
+    payload = {
+        "providers": [
+            {
+                "id": "main",
+                "name": "Main",
+                "server_url": "http://provider.example.com",
+                "username": "user",
+                "password": "secret",
+            }
+        ],
+        "active_provider_id": "main",
+        "text": "\n".join(
+            [
+                "#EXTM3U",
+                '#EXTINF:-1 group-title="Movies" tvg-name="Film",Film',
+                "http://provider.example.com/movie/user/pass/1.mp4",
+            ]
+        ),
+    }
+
+    scan_response = app.test_client().post("/api/playlist/text", json=payload)
+    reloaded_app = create_app(tmp_path)
+    cache_response = reloaded_app.test_client().get("/api/groups")
+    data = cache_response.get_json()
+
+    assert scan_response.status_code == 200
+    assert cache_response.status_code == 200
+    assert data["groups"][0]["name"] == "Movies"
+    assert data["groups"][0]["provider_id"] == "main"
+    assert data["stats"]["movie_entries"] == 1
+    assert (tmp_path / "web-groups.json").exists()
+
+
+def test_group_cache_api_rebuilds_from_cached_playlist(tmp_path: Path):
+    state = AppState(tmp_path)
+    state.save_settings(
+        {
+            "settings": {
+                "providers": [
+                    {
+                        "id": "main",
+                        "name": "Main",
+                        "server_url": "http://provider.example.com",
+                        "username": "user",
+                        "password": "secret",
+                    }
+                ]
+            }
+        }
+    )
+    state.write_and_scan_playlist(
+        "\n".join(
+            [
+                "#EXTM3U",
+                '#EXTINF:-1 group-title="Cached Movies" tvg-name="Film",Film',
+                "http://provider.example.com/movie/user/pass/1.mp4",
+            ]
+        ),
+        "main",
+    )
+    app = create_app(tmp_path)
+
+    response = app.test_client().get("/api/groups")
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert data["groups"][0]["name"] == "Cached Movies"
+    assert data["groups"][0]["provider_id"] == "main"
+    assert data["stats"]["movie_entries"] == 1
+    assert (tmp_path / "web-groups.json").exists()
+
+
+def test_fetch_playlist_uses_cached_m3u_when_live_fetch_fails(tmp_path: Path, monkeypatch):
+    state = AppState(tmp_path)
+    state.write_and_scan_playlist(
+        "\n".join(
+            [
+                "#EXTM3U",
+                '#EXTINF:-1 group-title="Cached Movies" tvg-name="Film",Film',
+                "http://provider.example.com/movie/user/pass/1.mp4",
+            ]
+        ),
+        "main",
+    )
+
+    def fail_get(*args, **kwargs):
+        raise requests.ReadTimeout("timed out")
+
+    monkeypatch.setattr("vod_strm_builder.webapp.requests.get", fail_get)
+    app = create_app(tmp_path)
+
+    response = app.test_client().post(
+        "/api/playlist/fetch",
+        json={
+            "providers": [
+                {
+                    "id": "main",
+                    "name": "Main",
+                    "server_url": "http://provider.example.com",
+                    "username": "user",
+                    "password": "secret",
+                    "m3u_url": "http://provider.example.com/get.php?username=user&password=secret",
+                }
+            ]
+        },
+    )
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert data["groups"][0]["name"] == "Cached Movies"
+    assert data["playlist_cached"] is True
+    assert data["source"] == "m3u"
+    assert "using cached playlist" in data["warning"]
+
+
+def test_fetch_playlist_rejects_movie_empty_m3u_and_uses_xtream_api(tmp_path: Path, monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def raise_for_status(self):
+            return None
+
+        def iter_lines(self, decode_unicode=True):
+            yield '#EXTINF:-1 group-title="Shows" tvg-name="Show S01E01",Show S01E01'
+            yield "http://provider.example.com/series/user/pass/1.ts"
+
+    def fake_xtream_groups(self, settings):
+        return [
+            {"name": "Movies", "movie_count": 2, "series_count": 0, "live_count": 0, "total": 2, "samples": ["Film"]},
+        ]
+
+    monkeypatch.setattr("vod_strm_builder.webapp.requests.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(AppState, "fetch_xtream_groups", fake_xtream_groups)
+    app = create_app(tmp_path)
+
+    response = app.test_client().post(
+        "/api/playlist/fetch",
+        json={
+            "providers": [
+                {
+                    "id": "main",
+                    "name": "Main",
+                    "server_url": "http://provider.example.com",
+                    "username": "user",
+                    "password": "secret",
+                    "m3u_url": "http://provider.example.com/get.php?username=user&password=secret",
+                }
+            ],
+            "selected_groups": {"providers": {"main": {"movie_groups": ["Movies"]}}},
+        },
+    )
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert data["source"] == "xtream_api"
+    assert data["stats"]["movie_entries"] == 2
+    assert data["groups"][0]["provider_source"] == "xtream_api"
+    assert "M3U refresh had no movies" in data["warning"]
+    assert not (tmp_path / "playlists" / "main.m3u").exists()
+
+
+def test_multi_provider_selection_is_split_by_provider():
+    providers = settings_providers(
+        {
+            "providers": [
+                {"id": "one", "name": "One", "server_url": "http://one.example", "username": "u", "password": "p"},
+                {"id": "two", "name": "Two", "server_url": "http://two.example", "username": "u", "password": "p"},
+            ]
+        }
+    )
+
+    selected = selected_groups_by_provider(
+        {
+            "providers": {
+                "one": {"movie_groups": ["Movies"]},
+                "two": {"series_groups": ["Series"]},
+            }
+        },
+        providers,
+    )
+
+    assert selected["one"]["movie_groups"] == ["Movies"]
+    assert selected["one"]["series_groups"] == []
+    assert selected["two"]["movie_groups"] == []
+    assert selected["two"]["series_groups"] == ["Series"]
+
+
+def test_fetch_and_scan_playlist_handles_byte_lines(tmp_path: Path, monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def raise_for_status(self):
+            return None
+
+        def iter_lines(self, decode_unicode=True):
+            yield b'#EXTINF:-1 group-title="Movies" tvg-name="Film",Film'
+            yield b"http://example.test/movie/user/pass/1.mp4"
+
+    monkeypatch.setattr("vod_strm_builder.webapp.requests.get", lambda *args, **kwargs: FakeResponse())
+    state = AppState(tmp_path)
+
+    groups = state.fetch_and_scan_playlist("http://provider.example.com/get.php", DEFAULT_USER_AGENT)
+
+    assert groups[0]["name"] == "Movies"
+    assert groups[0]["movie_count"] == 1
+    assert state.playlist_cache.read_text(encoding="utf-8").startswith("#EXTINF")
+
+
+def test_xtream_group_summaries_merge_movie_and_series_categories():
+    movies = [
+        MovieItem("Movie A", "1", "10", "mp4", None, None, None, None, None, None, None),
+        MovieItem("Movie B", "2", "10", "mp4", None, None, None, None, None, None, None, category_ids=("10", "11")),
+    ]
+    series = [SeriesItem("Show A", "3", "20", None, None, None, None, None, None, None)]
+    live_streams = [{"name": "News", "category_id": "30", "category_ids": ("30",)}]
+
+    groups = xtream_group_summaries({"10": "Films", "11": "Featured"}, {"20": "Shows"}, {"30": "Live"}, movies, series, live_streams)
+    by_name = {group["name"]: group for group in groups}
+
+    assert by_name["Films"]["movie_count"] == 2
+    assert by_name["Featured"]["movie_count"] == 1
+    assert by_name["Films"]["series_count"] == 0
+    assert by_name["Shows"]["movie_count"] == 0
+    assert by_name["Shows"]["series_count"] == 1
+    assert by_name["Live"]["live_count"] == 1
